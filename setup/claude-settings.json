@@ -1,0 +1,35 @@
+{
+  "env": {
+    "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"
+  },
+  "permissions": {
+    "allow": [
+      "Edit(./**)",
+      "Write(./**)",
+      "Read(//Applications/Xcode.app/**)",
+      "Bash(swift *)",
+      "Bash(xcodebuild *)",
+      "Bash(xcodegen *)",
+      "Bash(xcrun *)"
+    ],
+    "deny": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git -C *)",
+      "Bash(git reset *)",
+      "Bash(git checkout *)",
+      "Bash(git restore *)",
+      "Bash(git clean *)",
+      "Bash(git stash *)",
+      "Bash(speak *)",
+      "Bash(sudo *)",
+      "Bash(brew *)",
+      "Bash(curl *)",
+      "WebFetch"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "excludedCommands": ["swift *", "xcodebuild *", "xcodegen *", "xcrun *"]
+  }
+}
