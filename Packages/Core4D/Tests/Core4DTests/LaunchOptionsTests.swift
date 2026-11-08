@@ -1,6 +1,7 @@
 // Copyright 2026 Andreas Keese. Licensed under the Apache License, Version 2.0.
 
 import Foundation
+import simd
 import Testing
 @testable import Core4D
 
@@ -43,8 +44,26 @@ struct LaunchOptionsTests {
         var s = ViewState()
         s.motion.omega = AngularVelocity4D(xw: 0.6)
         let integrated = LaunchConfiguration.integrate(s, time: 1.5)
-        let direct = Rotation4D.plane(.xw, angle: 0.9)
+        // Ω acts in world coordinates, so the start tilt is applied first.
+        let direct = Rotation4D.plane(.xw, angle: 0.9) * Orientation4D.start.matrix
         #expect(maxAbsDifference(integrated.orientation.matrix, direct) < 1e-9)
+    }
+
+    @Test func startOrientationIsAPure3DTilt() {
+        let r = Orientation4D.start.matrix
+        // W is untouched (cube-inside-a-cube in perspective) and xyz is turned.
+        #expect(simd_distance(r * SIMD4<Double>(0, 0, 0, 1), SIMD4<Double>(0, 0, 0, 1)) < 1e-12)
+        #expect(abs(r[0, 0] - 1) > 0.05 && abs(r[1, 1] - 1) > 0.05)
+        #expect(ViewState().orientation == .start)
+    }
+
+    @Test func parsesViewpoint() {
+        #expect(LaunchConfiguration.parse(["viewpoint": "back"]).viewSide == .back)
+        #expect(LaunchConfiguration.parse([:]).viewSide == nil)
+        let bad = LaunchConfiguration.parse(["viewpoint": "above"])
+        #expect(bad.viewSide == nil && bad.problems == ["viewpoint=above"])
+        #expect(ViewSide.back.direction == SIMD3<Float>(0, 0, -1))
+        #expect(ViewSide.allCases.allSatisfy { abs(simd_length($0.direction) - 1) < 1e-6 })
     }
 
     @Test func viewStateRoundTripsThroughJSON() throws {

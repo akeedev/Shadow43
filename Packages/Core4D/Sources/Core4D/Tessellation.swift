@@ -25,21 +25,14 @@ public struct RenderMesh4D: Sendable {
         }
     }
 
-    /// How face normals are turned towards the viewer.
-    public enum NormalOrientation: Sendable {
-        /// All normals of a polygon flip together (polytopes).
-        case perPolygon
-        /// Each vertex flips on its own (smooth surfaces, including non-orientable ones).
-        case perVertex
-    }
-
     public var facePoints = PointSet()
-    /// Three indices into `facePoints` per triangle.
+    /// Three indices into `facePoints` per triangle. Within a polygon (or a surface) all triangles
+    /// have the same orientation, so normals that follow the winding are consistent (D16).
     public var triangles: [UInt32] = []
-    /// Point and triangle ranges of each polygon (contiguous by construction).
+    /// Point and triangle ranges of each polygon (contiguous by construction). Surfaces have one
+    /// point range for the whole grid and one triangle range per quad.
     public var polygonPointRanges: [Range<Int>] = []
     public var polygonTriangleRanges: [Range<Int>] = []
-    public var normalOrientation = NormalOrientation.perPolygon
 
     public var edgePoints = PointSet()
     /// Indices into `edgePoints`.
@@ -198,10 +191,11 @@ public enum Tessellation {
     // MARK: Surfaces and curves
 
     /// Parametric surfaces: the complex is a grid whose faces are quads; points are shared so the
-    /// surface is smooth. Edges are the complex's polylines.
+    /// surface is smooth. Seam points are duplicated, so the Klein bottle's orientation reversal
+    /// shows as a lighting crease along its seam instead of cancelling normals. Edges are the
+    /// complex's polylines.
     static func surfaceMesh(_ c: Complex4D, options: TessellationOptions) -> RenderMesh4D {
         var mesh = RenderMesh4D()
-        mesh.normalOrientation = .perVertex
         let uv = c.uv ?? Array(repeating: .zero, count: c.vertices.count)
         for (i, v) in c.vertices.enumerated() {
             mesh.facePoints.append(v, key: SIMD2<Float>(uv[i]))

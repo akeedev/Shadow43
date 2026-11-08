@@ -54,24 +54,20 @@ public struct FrameParameters: Equatable, Sendable {
     public var edgeRadius: Float
     /// Sort triangles back to front along `viewDirection` (transparency method "sorted").
     public var sortFaces: Bool
-    /// Wind every cell's triangles outwards (transparency method "per-cell entities").
+    /// Wind every cell's polygons outwards (transparency method "per-cell entities").
     public var orientCellFaces: Bool
-    /// Unit vector from the content towards the viewer; +z in the window.
+    /// Unit vector from the content towards the viewer, used only for sorting. The window knows
+    /// only which side of the volume the viewer is on (D17).
     public var viewDirection: SIMD3<Float>
     /// Points with `1 − κw < epsilon` are culled.
     public var epsilon: Float
     /// Points farther than this from the origin (object units) are culled.
     public var maxRadius: Float
-    /// Emit every face triangle in both windings, so faces can be drawn double-sided with
-    /// back-face culling (RealityKit casts no shadows from `faceCulling = .none` meshes).
-    public var duplicateBackFaces: Bool = false
 
     public init(rotation: simd_float4x4 = matrix_identity_float4x4, kappa: Float = 0, spherize: Float = 0,
                 faceColors: FrameColorMode = .uniform, edgeColors: FrameColorMode = .uniform,
                 edgeRadius: Float = 0.01, sortFaces: Bool = false, orientCellFaces: Bool = false,
-                viewDirection: SIMD3<Float> = [0, 0, 1], epsilon: Float = 0.02, maxRadius: Float = 20,
-                duplicateBackFaces: Bool = false) {
-        self.duplicateBackFaces = duplicateBackFaces
+                viewDirection: SIMD3<Float> = [0, 0, 1], epsilon: Float = 0.02, maxRadius: Float = 20) {
         self.rotation = rotation
         self.kappa = kappa
         self.spherize = spherize
@@ -89,15 +85,26 @@ public struct FrameParameters: Equatable, Sendable {
 /// Per-frame pipeline on the CPU (DESIGN 6.3, steps 2–5): rotate, spherize, project, cull,
 /// recompute normals, build tubes and texture coordinates. Buffers are allocated once at their
 /// maximum size and reused; the `…Count` properties say how much of them is in use.
+///
+/// Faces are double-sided with their own normals on each side (D16). `faceVertices` holds every
+/// face point twice: first with the normal that matches the triangle winding (front copies), then,
+/// from `backVertexOffset` on, with the negated normal (back copies). Every visible triangle is
+/// emitted once per copy, the back copy with reversed winding. With back-face culling the GPU keeps
+/// exactly the copy that faces the camera, so the lit side always faces the viewer, from any
+/// direction, without knowing where the viewer is.
 public final class FrameBuilder {
     public let mesh: RenderMesh4D
     public let tubeSides: Int
 
     public private(set) var faceVertices: [MeshVertex]
+    /// Index of the first back copy in `faceVertices` (the number of face points).
+    public let backVertexOffset: Int
     public private(set) var faceIndices: [UInt32]
     public private(set) var faceIndexCount = 0
-    /// Range of each cell group in `faceIndices` (only when not sorted).
+    /// Range of each cell group's front copies in `faceIndices` (only when not sorted).
     public private(set) var groupIndexRanges: [Range<Int>] = []
+    /// Range of each cell group's back copies in `faceIndices` (only when not sorted).
+    public private(set) var groupBackIndexRanges: [Range<Int>] = []
 
     public private(set) var edgeVertices: [MeshVertex]
     public private(set) var edgeVertexCount = 0
@@ -113,6 +120,9 @@ public final class FrameBuilder {
     private var edgeW: [Float]
     private var edgeValid: [Bool]
     private var triangleNormals: [SIMD3<Float>]
+    /// Per-cell winding (reused every frame): polygons and triangles that are emitted reversed.
+    private var polygonFlip: [Bool]
+    private var triangleFlip: [Bool]
     private struct SortKey {
         var depth: Float
         var triangle: Int32
@@ -122,19 +132,25 @@ public final class FrameBuilder {
     private var visibleScratch: [Int32] = []
     private let ringDirections: [SIMD2<Float>]
 
+    /// All face vertices are written every frame (front and back copies).
+    public var faceVertexCount: Int { faceVertices.count }
     public var faceVertexCapacity: Int { faceVertices.count }
     public var faceIndexCapacity: Int { faceIndices.count }
     public var edgeVertexCapacity: Int { edgeVertices.count }
     public var edgeIndexCapacity: Int { edgeIndices.count }
+    /// Triangles sent to the GPU, counting both copies of every face triangle.
     public var visibleTriangleCount: Int { (faceIndexCount + edgeIndexCount) / 3 }
 
     public init(mesh: RenderMesh4D, tubeSides: Int = 6) {
         self.mesh = mesh
         self.tubeSides = max(3, tubeSides)
-        faceVertices = Array(repeating: MeshVertex(), count: mesh.facePoints.count)
+        backVertexOffset = mesh.facePoints.count
+        faceVertices = Array(repeating: MeshVertex(), count: 2 * mesh.facePoints.count)
         faceIndices = Array(repeating: 0, count: 2 * mesh.triangles.count)
         faceValid = Array(repeating: false, count: mesh.facePoints.count)
         triangleNormals = Array(repeating: .zero, count: mesh.triangleCount)
+        polygonFlip = Array(repeating: false, count: mesh.polygonTriangleRanges.count)
+        triangleFlip = Array(repeating: false, count: mesh.triangleCount)
         let sides = self.tubeSides
         let vertexCapacity = mesh.polylines.reduce(0) { $0 + $1.count * sides }
         let indexCapacity = mesh.polylines.reduce(0) { $0 + max(0, 6 * sides * $1.count - 12) }
@@ -153,7 +169,13 @@ public final class FrameBuilder {
     public func update(_ p: FrameParameters, faces: Bool = true, edges: Bool = true) {
         var lo = SIMD3<Float>(repeating: .infinity)
         var hi = SIMD3<Float>(repeating: -.infinity)
-        if faces { buildFaces(p, lo: &lo, hi: &hi) } else { faceIndexCount = 0; groupIndexRanges = [] }
+        if faces {
+            buildFaces(p, lo: &lo, hi: &hi)
+        } else {
+            faceIndexCount = 0
+            groupIndexRanges = []
+            groupBackIndexRanges = []
+        }
         if edges { buildEdges(p, lo: &lo, hi: &hi) } else { edgeVertexCount = 0; edgeIndexCount = 0 }
         if lo.x > hi.x { lo = .zero; hi = .zero }
         boundsMin = lo
@@ -221,111 +243,146 @@ public final class FrameBuilder {
             }
         }
 
-        orientNormals(viewDirection: p.viewDirection)
+        // Optional outward winding per cell (per-cell transparency), then unit normals and the
+        // back copies.
+        let flips = p.orientCellFaces && computeCellWinding(p)
+        finishNormals(flipped: flips)
 
-        // Optional outward winding per cell (per-cell transparency).
-        var flip = [Bool](repeating: false, count: p.orientCellFaces ? mesh.triangleCount : 0)
-        if p.orientCellFaces { computeCellWinding(p, flip: &flip) }
-
-        // Index buffer: in mesh order (cell groups contiguous) or sorted back to front.
+        // Index buffer: in mesh order (cell groups contiguous) or sorted back to front. Each
+        // triangle is emitted as a front copy and as a back copy with reversed winding.
         var count = 0
+        let back = UInt32(backVertexOffset)
         faceIndices.withUnsafeMutableBufferPointer { out in
-            let both = p.duplicateBackFaces
-            func emit(_ t: Int) {
-                let a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2]
-                out[count] = a
-                if !flip.isEmpty && flip[t] {
-                    out[count + 1] = c
-                    out[count + 2] = b
-                } else {
-                    out[count + 1] = b
-                    out[count + 2] = c
-                }
-                count += 3
-                if both {
+            triangleFlip.withUnsafeBufferPointer { flip in
+                func emitFront(_ t: Int) {
+                    let a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2]
+                    let reversed = flips && flip[t]
                     out[count] = a
-                    out[count + 1] = out[count - 1]
-                    out[count + 2] = out[count - 2]
+                    out[count + 1] = reversed ? c : b
+                    out[count + 2] = reversed ? b : c
                     count += 3
                 }
-            }
-            if p.sortFaces {
-                sortKeys.removeAll(keepingCapacity: true)
-                faceVertices.withUnsafeBufferPointer { verts in
-                    for t in visible {
-                        let ti = Int(t)
-                        let centroid = verts[Int(tris[3 * ti])].position + verts[Int(tris[3 * ti + 1])].position
-                            + verts[Int(tris[3 * ti + 2])].position
-                        sortKeys.append(SortKey(depth: simd_dot(centroid, p.viewDirection), triangle: t))
-                    }
+                func emitBack(_ t: Int) {
+                    let a = tris[3 * t] + back, b = tris[3 * t + 1] + back, c = tris[3 * t + 2] + back
+                    let reversed = flips && flip[t]
+                    out[count] = a
+                    out[count + 1] = reversed ? b : c
+                    out[count + 2] = reversed ? c : b
+                    count += 3
                 }
-                sortKeys.sort { $0.depth < $1.depth }
-                for k in sortKeys { emit(Int(k.triangle)) }
-                groupIndexRanges = []
-            } else {
-                var ranges: [Range<Int>] = []
-                var v = 0
-                if mesh.groupTriangleRanges.isEmpty {
-                    for t in visible { emit(Int(t)) }
-                } else {
-                    for g in mesh.groupTriangleRanges {
-                        let start = count
-                        while v < visible.count, Int(visible[v]) < g.upperBound {
-                            emit(Int(visible[v]))
-                            v += 1
+                if p.sortFaces {
+                    sortKeys.removeAll(keepingCapacity: true)
+                    faceVertices.withUnsafeBufferPointer { verts in
+                        for t in visible {
+                            let ti = Int(t)
+                            let centroid = verts[Int(tris[3 * ti])].position + verts[Int(tris[3 * ti + 1])].position
+                                + verts[Int(tris[3 * ti + 2])].position
+                            sortKeys.append(SortKey(depth: simd_dot(centroid, p.viewDirection), triangle: t))
                         }
-                        ranges.append(start..<count)
                     }
+                    sortKeys.sort { $0.depth < $1.depth }
+                    for k in sortKeys {
+                        emitFront(Int(k.triangle))
+                        emitBack(Int(k.triangle))
+                    }
+                    groupIndexRanges = []
+                    groupBackIndexRanges = []
+                } else if mesh.groupTriangleRanges.isEmpty {
+                    for t in visible {
+                        emitFront(Int(t))
+                        emitBack(Int(t))
+                    }
+                    groupIndexRanges = []
+                    groupBackIndexRanges = []
+                } else {
+                    // Per group: all front copies, then all back copies (per-cell entities).
+                    var fronts: [Range<Int>] = []
+                    var backs: [Range<Int>] = []
+                    var v = 0
+                    for g in mesh.groupTriangleRanges {
+                        let first = v
+                        while v < visible.count, Int(visible[v]) < g.upperBound { v += 1 }
+                        let frontStart = count
+                        for k in first..<v { emitFront(Int(visible[k])) }
+                        fronts.append(frontStart..<count)
+                        let backStart = count
+                        for k in first..<v { emitBack(Int(visible[k])) }
+                        backs.append(backStart..<count)
+                    }
+                    groupIndexRanges = fronts
+                    groupBackIndexRanges = backs
                 }
-                groupIndexRanges = ranges
             }
         }
         faceIndexCount = count
     }
 
-    /// Normalises the accumulated normals and turns them towards the viewer, per polygon or per
-    /// vertex. Faces are drawn double-sided, so this keeps the lit side facing the viewer.
-    private func orientNormals(viewDirection: SIMD3<Float>) {
+    /// Normalises the accumulated normals, so they follow the triangle winding; negates the
+    /// normals of polygons that `computeCellWinding` reversed; and writes the back copies with
+    /// negated normals.
+    private func finishNormals(flipped: Bool) {
+        let n = backVertexOffset
+        let polygonsHavePoints = mesh.polygonPointRanges.count == mesh.polygonTriangleRanges.count
         faceVertices.withUnsafeMutableBufferPointer { verts in
-            switch mesh.normalOrientation {
-            case .perPolygon:
-                for range in mesh.polygonPointRanges {
-                    var sum = SIMD3<Float>.zero
-                    for i in range { sum += verts[i].normal }
-                    let sign: Float = simd_dot(sum, viewDirection) < 0 ? -1 : 1
-                    for i in range {
-                        let n = verts[i].normal
-                        let len = simd_length(n)
-                        verts[i].normal = len > 1e-20 ? n * (sign / len) : viewDirection
+            for i in 0..<n {
+                let v = verts[i].normal
+                let len = simd_length(v)
+                verts[i].normal = len > 1e-20 ? v / len : SIMD3(0, 0, 1)
+            }
+            if flipped, polygonsHavePoints {
+                polygonFlip.withUnsafeBufferPointer { pf in
+                    for (k, range) in mesh.polygonPointRanges.enumerated() where pf[k] {
+                        for i in range { verts[i].normal = -verts[i].normal }
                     }
                 }
-            case .perVertex:
-                for i in 0..<verts.count {
-                    let n = verts[i].normal
-                    let len = simd_length(n)
-                    let sign: Float = simd_dot(n, viewDirection) < 0 ? -1 : 1
-                    verts[i].normal = len > 1e-20 ? n * (sign / len) : viewDirection
-                }
+            }
+            for i in 0..<n {
+                var b = verts[i]
+                b.normal = -b.normal
+                verts[n + i] = b
             }
         }
     }
 
-    /// Marks triangles whose normal points towards their cell's projected centre.
-    private func computeCellWinding(_ p: FrameParameters, flip: inout [Bool]) {
+    /// Per-cell transparency: marks every polygon whose normal points into its cell (towards the
+    /// cell's projected centre), so that it is emitted reversed with a negated normal. Whole
+    /// polygons flip together, so curved (spherized) polygons stay consistent. Returns whether
+    /// anything was computed (only meshes with cell groups).
+    private func computeCellWinding(_ p: FrameParameters) -> Bool {
+        let groups = mesh.groupTriangleRanges
+        guard !groups.isEmpty else { return false }
         let centres = mesh.groupCenters
         let tris = mesh.triangles
+        let polygons = mesh.polygonTriangleRanges
         let maxR2 = p.maxRadius * p.maxRadius
+        for k in polygonFlip.indices { polygonFlip[k] = false }
+        for t in triangleFlip.indices { triangleFlip[t] = false }
         faceVertices.withUnsafeBufferPointer { verts in
-            for (g, range) in mesh.groupTriangleRanges.enumerated() {
+            // Polygons are contiguous and lie within their group.
+            var k = 0
+            for (g, range) in groups.enumerated() {
                 let (c, _, ok) = Self.project(flat: centres.flat[g], sphere: centres.sphere[g], p, maxRadius2: maxR2)
-                guard ok else { continue }
-                for t in range where triangleNormals[t] != .zero {
-                    let centroid = (verts[Int(tris[3 * t])].position + verts[Int(tris[3 * t + 1])].position
-                        + verts[Int(tris[3 * t + 2])].position) / 3
-                    flip[t] = simd_dot(triangleNormals[t], centroid - c) < 0
+                while k < polygons.count, polygons[k].lowerBound < range.upperBound {
+                    let polygon = polygons[k]
+                    let index = k
+                    k += 1
+                    guard ok else { continue }
+                    var normal = SIMD3<Float>.zero
+                    var centroid = SIMD3<Float>.zero
+                    var corners: Float = 0
+                    for t in polygon where triangleNormals[t] != .zero {
+                        normal += triangleNormals[t]
+                        centroid += verts[Int(tris[3 * t])].position + verts[Int(tris[3 * t + 1])].position
+                            + verts[Int(tris[3 * t + 2])].position
+                        corners += 3
+                    }
+                    guard corners > 0, simd_dot(normal, centroid / corners - c) < 0 else { continue }
+                    polygonFlip[index] = true
+                    for t in polygon { triangleFlip[t] = true }
                 }
             }
         }
+        return true
     }
 
     // MARK: Edges

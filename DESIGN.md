@@ -92,7 +92,8 @@ All objects are centred and scaled to circumradius 1.
   - *Double:* XY + ZW at different speeds
   - *Isoclinic:* XY + ZW at the same speed (Clifford rotation, which has no 3D equivalent)
   - *Drift:* all 6 planes, slow and at different speeds
-- **Reset** sets R back to the identity.
+- **Reset** sets R back to the start orientation: a pure 3D tilt (35° in XZ, then 25° in YZ), so
+  the tesseract in perspective shows its cube inside a cube, seen obliquely [D18].
 - All rotation planes refer to the user's view, not to the object.
 - The 3D entity in the scene is **never rotated itself**; all rotation lives in R. That keeps a
   single source of truth, and it is correct because 3D rotations commute with the projection.
@@ -156,6 +157,12 @@ restructuring.
 ### 3.5 Scene
 
 - **v1: volumetric window.** A box in space that can be placed freely and resized.
+- **Automatic size [D15]:** every object is scaled so that the radius holding 90 % of its projected
+  vertices fills 75 % of the box's smallest side. The radius is measured over 32 fixed orientations,
+  so it depends only on the object, κ and s and does not pump while the object rotates. The few
+  vertices that fly far out in the stereographic view do not shrink the rest. The user's *Size*
+  control (and the two-hand pinch) is a factor on top. Edge thickness is relative to the fitted
+  radius, so tubes keep their size in metres.
 - **Shadow of the shadow:** a light from above casts the shadow of the 3D projection onto a subtle
   virtual floor disc in the box. That shows 4D → 3D → 2D in one scene.
 - **Immersive space: prepared in v1, completed later [D5]:**
@@ -164,10 +171,15 @@ restructuring.
     one `ViewState`.
   - v1 declares the `ImmersiveSpace` and opens it from an "Open in room (experimental)" button.
     It shows the content at room scale (about 2 m), with the same controls and no extra features.
-  - Everything that differs by host goes through one `SceneHost` value: bounds, default scale, and
-    whether a viewer pose is available. Later additions slot in there without restructuring: head
-    pose for transparency sorting via ARKit world tracking, hand tracking, and placing the content
-    on real surfaces.
+  - Everything that differs by host goes through one `SceneHost` value: bounds, and what the host
+    knows about the viewer. Later additions slot in there without restructuring: head pose for
+    transparency sorting via ARKit world tracking, hand tracking, and placing the content on real
+    surfaces.
+- **Where the viewer is [D17]:** a volumetric window gets no head pose [verify]. It only learns
+  which side of the volume the viewer is on (front, right, back, left) from
+  `onVolumeViewpointChange`; that side is the sort direction of the *sorted* transparency method.
+  In the immersive space, ARKit world tracking can give the exact head pose (next step, not yet
+  connected).
 
 ### 3.6 Interaction
 
@@ -365,9 +377,9 @@ struct ViewState {
 
 /// What differs between the volumetric window and the immersive space.
 struct SceneHost {
-    var bounds: SIMD3<Float>            // metres
-    var defaultScale: Float
+    var bounds: SIMD3<Float>            // metres; the object fills 75 % of the smallest side (D15)
     var viewerPose: ViewerPoseProvider? // nil in the window; ARKit later in the immersive space
+    var tracksVolumeViewpoint: Bool     // window: the viewer's side of the volume (D17)
 }
 ```
 
@@ -426,18 +438,21 @@ launch arguments, snapshots and saving scenes later.
   - The colour source is UV plus texture: gradient 256×1, palette N×1, checkerboard.
   - Present in the SDK: `faceCulling`, `writesDepth`, `readsDepth`, and blend modes `.alpha` and
     `.add` (via `Program.Descriptor`).
-- Faces are rendered **double-sided** (no face culling). Closed cells and non-orientable surfaces
-  need this.
+- Faces are rendered **double-sided**. Closed cells and non-orientable surfaces need this. Every
+  triangle exists twice, as a front copy whose normal follows its winding and as a back copy with
+  reversed winding and negated normal; back-face culling keeps the copy that faces the camera, so
+  lit styles are correct from every side without knowing the viewer [D12, D16].
 - **Transparency is the main risk (spike S1).** Implement all three candidates behind the
   Developer switch, so the user can compare them on the device:
   1. **Additive** (`.add`, `writesDepth = false`): independent of order, no flicker, a "glowing
      glass" look. This is the *glowing* style and probably the nicest Glass preset.
   2. **Sorted:** sort triangles back to front every frame (the index list is rebuilt every frame
-     anyway). In the window the head pose is probably unknown [verify], so sort along −z of the box
-     as an approximation. Later, in the immersive space, sort by the real head pose.
+     anyway). In the window the head pose is unknown, so sort towards the side of the volume the
+     viewer is on (D17); between the four sides the order is approximate. Later, in the immersive
+     space, sort by the real head pose.
   3. **Per-cell entities** (only with explode > 0): RealityKit sorts entities itself. Within a
-     convex cell, draw back faces first, then front faces (`ModelSortGroupComponent` plus
-     `faceCulling`).
+     convex cell, draw the inner sides first, then the outer sides (`ModelSortGroupComponent`;
+     back copies and front copies as two entities, both with back-face culling).
 - **Edges as tubes:** RealityKit has no thick lines, so polylines are built as continuous tubes.
 - **Input:** the object entity gets an `InputTargetComponent` and a **static**
   `CollisionComponent` (a sphere the size of the box), because the mesh changes all the time.
@@ -563,10 +578,14 @@ checked without clicking. The Developer section offers the same.
 | D8 | 2026-11-08 | Everything in English, including UI, code and docs; open source under Apache 2.0, © Andreas Keese; git local first, moved to GitHub later | |
 | D9 | 2026-11-08 | Projection as two controls κ, s with presets | one formula covers orthographic, perspective and stereographic, and allows morphing |
 | D10 | 2026-11-08 | Display as layers with presets; volumes are cells with explode; colour per cell forces a minimum explode | fewer modes, orthogonal controls |
-| D11 | 2026-11-08 | Core4D is compiled with `-O` in every configuration (`unsafeFlags` in `Package.swift`) | the per-frame pipeline is ~40× slower unoptimised; Xcode's default Run (Debug) would otherwise miss 90 Hz on the device |
+| D11 | 2026-11-08 | Core4D (`unsafeFlags` in `Package.swift`) and the app target (`SWIFT_OPTIMIZATION_LEVEL` for Debug in `project.yml`) are compiled with `-O` in every configuration; debug info stays | the per-frame pipeline is ~40× slower unoptimised; a normal Run from Xcode should show the real speed. Revert when stepping through code in the debugger |
 | D12 | 2026-11-08 | Double-sided faces are emitted in both windings with back-face culling | same look as `faceCulling = .none`; keeps lit and shadow paths uniform (night run, S4) |
 | D13 | 2026-11-08 | Leaving the *Cells* display preset resets explode to 0 and the colour source to *by W* | otherwise every other preset would still look exploded; easy to change in `DisplayPreset.apply` |
 | D14 | 2026-11-08 | Subdivision only when s > 0; levels by size (n = 8/6/5, m = 3/2/2) | the projection maps lines to lines; large polytopes stay within budget |
+| D15 | 2026-11-08 | Automatic size: the 90th-percentile vertex radius, over 32 fixed orientations, fills 75 % of the box's smallest side (first 80 %, which let the tesseract touch the floor disc); the user's size is a factor on top; edge thickness is relative to the fitted radius | every object and projection fills the volume; stereographic outliers do not shrink the rest; no pumping while rotating |
+| D16 | 2026-11-08 | Every face triangle has a front copy (normal follows the winding) and a back copy (reversed winding, negated normal); no more "normals turned towards +z" | lit styles are correct from every side without a viewer position; costs twice the face vertices (small next to the tubes) |
+| D17 | 2026-11-08 | The window sorts towards the viewer's side of the volume (`onVolumeViewpointChange`, 4 sides); ARKit head pose only in the immersive space, later | the shared space gives no head pose; four sides are much better than a fixed +z |
+| D18 | 2026-11-08 | Start and reset orientation is a 3D tilt (35° XZ, 25° YZ) instead of the identity | the tesseract starts as the classic cube inside a cube, seen obliquely; axis-aligned views hide edges behind each other |
 
 ## 8. Findings (continued during implementation)
 
@@ -664,6 +683,23 @@ checked without clicking. The Developer section offers the same.
   - When the stress-test meshes (~240k vertices) are created, RealityKit logs "Hang detected while
     waiting for renderer to free resources" once; the app then runs normally. Recreating very
     large `LowLevelMesh`es is a visible hitch, so meshes are reused when their capacity suffices.
+- **2026-11-08, after v0.9 (D11 extended, D15–D18):**
+  - App target with `-O` in Debug: the S2 stress test gave 18–23 ms CPU in the simulator (build
+    2.0–3.0 ms) against 13.4 ms during the night run. The FrameBuilder part is unchanged; the rest
+    is the copy into `LowLevelMesh`, a plain memory copy inside RealityKit that compiler flags do
+    not touch. The difference is simulator load, not the flag; only the device gives a reliable
+    number.
+  - Automatic size (D15): tesseract, 24-cell, Klein bottle and the stereographic 120-cell fill the
+    volume; the 120-cell's outermost cells are cut by the volume, as intended. At 80 % fill the
+    tesseract's lowest corner almost touched the floor disc, so the fill is now 75 %.
+  - Flipped faces (D16): lit styles (Solid 24-cell, glossy Klein bottle) look right from the front
+    in the simulator; the back and sides can only be checked on the device. The overlay's triangle
+    count includes both copies of every face triangle.
+  - Per-cell entities now use two meshes per cell (front copies, back copies), both with back-face
+    culling, instead of one mesh drawn with front and back culling.
+  - `onVolumeViewpointChange(updateStrategy: .all)` compiles. Whether it fires in a volume, and
+    whether `.right` means the viewer stands at +x, can only be checked on the device; the
+    Developer section shows the current side, and `-viewpoint` fixes it for snapshots.
 
 ## 9. Glossary
 

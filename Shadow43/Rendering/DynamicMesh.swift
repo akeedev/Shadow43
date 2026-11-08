@@ -58,12 +58,13 @@ final class DynamicMesh {
         setPart(indexCount: iCount, bounds: bounds)
     }
 
-    /// Copies a vertex sub-range and remaps a list of indices into it (per-cell entities).
+    /// Copies a vertex sub-range and the indices `indices[indexRange]` minus `indexBase`
+    /// (per-cell entities: the indices refer to the builder's buffer, the vertices start at 0).
     func update(vertices: [MeshVertex], vertexRange: Range<Int>, indices: [UInt32], indexRange: Range<Int>,
-                bounds: BoundingBox) {
+                indexBase: UInt32, bounds: BoundingBox) {
         let vCount = min(vertexRange.count, vertexCapacity)
         let iCount = min(indexRange.count, indexCapacity)
-        let base = UInt32(vertexRange.lowerBound)
+        let base = indexBase
         if vCount > 0 {
             lowLevelMesh.replaceUnsafeMutableBytes(bufferIndex: 0) { raw in
                 vertices.withUnsafeBytes { src in

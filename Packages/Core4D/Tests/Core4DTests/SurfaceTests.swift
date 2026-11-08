@@ -99,7 +99,6 @@ struct SurfaceTests {
         let mesh = Tessellation.renderMesh(for: c, explode: 0.3, options: TessellationOptions())
         #expect(mesh.facePoints.count == c.vertices.count)
         #expect(mesh.triangleCount == 2 * c.faces.count)
-        #expect(mesh.normalOrientation == .perVertex)
         #expect(mesh.facePoints.colorKey[1] == SIMD2<Float>(c.uv![1]))
         #expect(mesh.groupPointRanges.isEmpty)
     }

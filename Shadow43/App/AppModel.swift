@@ -30,6 +30,12 @@ final class AppModel {
     var isRoomOpen = false
     /// Launch-argument problems, shown in the Developer section.
     var launchProblems: [String] = []
+    /// Side of the volume the viewer is on, as reported by the system (D17).
+    var systemViewSide: ViewSide = .front
+    /// Fixed by the `-viewpoint` launch argument; then system updates are ignored.
+    var viewSideOverride: ViewSide?
+    /// The viewer side used for sorting.
+    var viewSide: ViewSide { viewSideOverride ?? systemViewSide }
     /// Latest performance numbers from the render system (performance overlay, S2).
     var stats = RenderStats()
     /// Gesture → rotation mapping (k and sign, DESIGN 6.4).
@@ -73,8 +79,8 @@ final class AppModel {
         orientationRevision += 1
     }
 
-    /// Reset: R back to the identity.
-    func resetOrientation() { setOrientation(matrix_identity_double4x4) }
+    /// Reset: R back to the start orientation (D18).
+    func resetOrientation() { setOrientation(Orientation4D.start.matrix) }
 
     /// Stop: Ω = 0.
     func stop() { motion.omega = .zero }
@@ -108,6 +114,7 @@ final class AppModel {
         if let t = config.time { state = LaunchConfiguration.integrate(state, time: t) }
         viewState = state
         if let tab = config.panel.flatMap(PanelTab.init(rawValue:)) { panelTab = tab }
+        viewSideOverride = config.viewSide
         launchProblems = config.problems
     }
 

@@ -17,7 +17,7 @@ final class ShadowRenderer {
     let host: SceneHost
     /// Positioned by the host; holds the floor and light (metres) and the scaled content.
     let root = Entity()
-    /// Object units; scaled by `host.defaultScale × model.scale`.
+    /// Object units; scaled to fill the host box (`SizeFit`, D15) times `model.scale`.
     let content = Entity()
     let facesEntity = ModelEntity()
     let edgesEntity = ModelEntity()
@@ -31,6 +31,8 @@ final class ShadowRenderer {
     private let materials = MaterialFactory()
     private var structure: StructureKey?
     private var complex: (key: ComplexKey, value: Complex4D)?
+    /// Fitted radius (object units) for the current object and projection (D15).
+    private var fit: (key: FitKey, radius: Double)?
     private var builder: FrameBuilder?
     private var faceMesh: DynamicMesh?
     private var edgeMesh: DynamicMesh?
@@ -88,7 +90,7 @@ final class ShadowRenderer {
             applyLayers(layers)
             lastLayersApplied = layers
         }
-        content.scale = SIMD3(repeating: host.defaultScale * Float(model.scale))
+        content.scale = SIMD3(repeating: metresPerUnit())
         floor.update(enabled: model.display.floorShadow, method: model.developer.floorShadowMethod)
         if probe.isEnabled != model.developer.showsGestureTest { probe.isEnabled = model.developer.showsGestureTest }
 
@@ -103,8 +105,27 @@ final class ShadowRenderer {
         }
         stats.add(frame: deltaTime, cpu: CACurrentMediaTime() - start, build: buildTime,
                   triangles: builder?.visibleTriangleCount ?? 0,
-                  vertices: (builder?.faceVertexCapacity ?? 0) + (builder?.edgeVertexCount ?? 0))
+                  vertices: (builder?.faceVertexCount ?? 0) + (builder?.edgeVertexCount ?? 0))
         if let s = stats.flushIfDue(), s != model.stats { model.stats = s }
+    }
+
+    // MARK: Size (D15)
+
+    /// The radius holding 90 % of the projected vertices, cached per object and projection.
+    /// While a projection slider moves it is recomputed every frame (about 16k points).
+    private func fittedRadius() -> Double {
+        guard let complex else { return 1 }
+        let key = FitKey(complex: complex.key, projection: model.projection)
+        if let fit, fit.key == key { return fit.radius }
+        let r = SizeFit.radius(of: complex.value, projection: model.projection)
+        fit = (key, r)
+        return r
+    }
+
+    /// Metres per object unit: the fitted radius fills 75 % of the box, times the size factor.
+    private func metresPerUnit() -> Float {
+        Float(SizeFit.metresPerUnit(fittedRadius: fittedRadius(), boxSide: Double(host.smallestSide),
+                                    sizeFactor: model.scale))
     }
 
     // MARK: Structure (object, explode, subdivision)
@@ -171,7 +192,8 @@ final class ShadowRenderer {
 
     private func applyLayers(_ l: LayerKey) {
         let blend: MaterialKey.Blend = !l.translucent ? .opaque : (l.method == .additive && materials.isReady ? .additive : .alpha)
-        // Double-sided via both windings plus back-face culling (see FrameParameters.duplicateBackFaces).
+        // Double-sided via a front and a back copy of every triangle, each with its own normals,
+        // plus back-face culling (D12, D16).
         let faceMaterial = materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
                                                           blend: blend, culling: .back))
         let edgeMaterial = materials.material(MaterialKey(style: l.style, texture: l.edgeTexture, opacity: 1,
@@ -181,39 +203,38 @@ final class ShadowRenderer {
         facesEntity.isEnabled = l.facesVisible && !l.usesCellEntities
         edgesEntity.isEnabled = l.edgesVisible
         if l.usesCellEntities {
-            let back = materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
-                                                      blend: .alpha, culling: .front))
-            let front = materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
-                                                       blend: .alpha, culling: .back))
-            cells.setMaterials(backFaces: back, frontFaces: front)
+            // Back copies (inner sides) and front copies (outer sides) are separate entities with
+            // the same material; the sort group draws the back copies first.
+            cells.setMaterial(materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
+                                                             blend: .alpha, culling: .back)))
         }
         cells.container.isEnabled = l.usesCellEntities
         lastParameters = nil
     }
 
     private func frameParameters(_ l: LayerKey) -> FrameParameters {
-        let metresPerUnit = host.defaultScale * Float(model.scale)
         let box = max(host.bounds.x, max(host.bounds.y, host.bounds.z))
+        let viewDirection: SIMD3<Float> = host.tracksVolumeViewpoint ? model.viewSide.direction : [0, 0, 1]
         return FrameParameters(
             rotation: Rotation4D.float(model.orientation),
             kappa: Float(model.projection.kappa),
             spherize: Float(model.projection.spherize),
             faceColors: l.faceMode,
             edgeColors: l.edgeMode,
-            edgeRadius: Float(model.display.edgeThickness),
+            // Relative to the fitted radius, so tubes keep their size in metres (D15).
+            edgeRadius: Float(model.display.edgeThickness * fittedRadius()),
             sortFaces: l.facesVisible && l.translucent && l.method == .sorted,
             orientCellFaces: l.usesCellEntities,
-            viewDirection: [0, 0, 1],
+            viewDirection: viewDirection,
             epsilon: Float(Projection4D.defaultEpsilon),
-            maxRadius: 4 * box / metresPerUnit,
-            duplicateBackFaces: !l.usesCellEntities
+            maxRadius: 4 * box / metresPerUnit()
         )
     }
 
     private func upload(_ b: FrameBuilder, layers: LayerKey) {
         let bounds = BoundingBox(min: b.boundsMin, max: b.boundsMax)
         if layers.facesVisible, !layers.usesCellEntities, let faceMesh {
-            faceMesh.update(vertices: b.faceVertices, vertexCount: b.faceVertexCapacity, indices: b.faceIndices,
+            faceMesh.update(vertices: b.faceVertices, vertexCount: b.faceVertexCount, indices: b.faceIndices,
                             indexRange: 0..<b.faceIndexCount, bounds: bounds)
         }
         if layers.edgesVisible, let edgeMesh {
@@ -221,7 +242,7 @@ final class ShadowRenderer {
                             indexRange: 0..<b.edgeIndexCount, bounds: bounds)
         }
         if layers.usesCellEntities {
-            cells.upload(b, viewDirection: [0, 0, 1])
+            cells.upload(b)
         }
     }
 
@@ -252,6 +273,12 @@ final class ShadowRenderer {
 struct ComplexKey: Equatable {
     var object: ObjectID
     var duoprism: DuoprismParameters?
+}
+
+/// Everything the fitted size depends on (D15).
+struct FitKey: Equatable {
+    var complex: ComplexKey
+    var projection: ProjectionSettings
 }
 
 /// Everything the render mesh depends on.

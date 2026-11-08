@@ -1,5 +1,6 @@
 // Copyright 2026 Andreas Keese. Licensed under the Apache License, Version 2.0.
 
+import Core4D
 import SwiftUI
 
 /// Content of the volumetric window: the shadow plus the control panel in an ornament.
@@ -11,6 +12,11 @@ struct VolumeView: View {
 
     var body: some View {
         ShadowRealityView(host: .window)
+            // The window's only hint where the viewer is: the side of the volume (D17). `.all`
+            // reports every side without changing which viewpoints the volume supports.
+            .onVolumeViewpointChange(updateStrategy: .all) { _, viewpoint in
+                model.systemViewSide = ViewSide(viewpoint.squareAzimuth)
+            }
             .ornament(attachmentAnchor: .scene(.bottomFront), contentAlignment: .top) {
                 ControlPanel()
             }
@@ -29,5 +35,16 @@ struct VolumeView: View {
                     }
                 }
             }
+    }
+}
+
+extension ViewSide {
+    init(_ azimuth: SquareAzimuth) {
+        switch azimuth {
+        case .front: self = .front
+        case .right: self = .right
+        case .back: self = .back
+        case .left: self = .left
+        }
     }
 }

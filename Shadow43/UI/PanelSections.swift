@@ -99,6 +99,8 @@ struct DisplaySection: View {
             LabeledSlider(title: "Explode", value: $model.display.explode,
                           range: DisplaySettings.explodeRange, format: "%.0f %%", displayScale: 100)
                 .disabled(kind != .polytope)
+            // Factor on top of the automatic size (D15); also the two-hand pinch.
+            LabeledSlider(title: "Size", value: $model.scale, range: ViewState.scaleRange, format: "× %.2f")
         }
     }
 }
@@ -171,7 +173,13 @@ struct DeveloperSection: View {
                 Toggle("Freeze time", isOn: $model.developer.freezesTime).fixedSize()
                 Toggle("Fine subdivision (S2 stress)", isOn: $model.developer.forcesFineSubdivision).fixedSize()
             }
-            LabeledSlider(title: "Scale", value: $model.scale, range: ViewState.scaleRange)
+            HStack(spacing: 4) {
+                // Sort direction of the "sorted" method (D17).
+                Text("Viewer side:")
+                Text(model.viewSide.label)
+                if model.viewSideOverride != nil { Text("(launch argument)") }
+            }
+            .foregroundStyle(.secondary)
             Button(model.isRoomOpen ? "Close room" : "Open in room (experimental)",
                    systemImage: "cube.transparent") {
                 Task {

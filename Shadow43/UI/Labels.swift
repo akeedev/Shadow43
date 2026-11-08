@@ -115,6 +115,17 @@ extension FloorShadowMethod {
     }
 }
 
+extension ViewSide {
+    var label: LocalizedStringKey {
+        switch self {
+        case .front: "Front"
+        case .right: "Right"
+        case .back: "Back"
+        case .left: "Left"
+        }
+    }
+}
+
 extension RotationPlane {
     var label: LocalizedStringKey {
         switch self {

@@ -78,7 +78,8 @@ public enum EdgeColorMode: String, Codable, CaseIterable, Sendable {
 /// The display layers (DESIGN 3.4).
 public struct DisplaySettings: Codable, Equatable, Sendable {
     public var edgesVisible: Bool
-    /// Tube radius in object units (the object has circumradius 1).
+    /// Tube radius as a fraction of the fitted object radius (D15), so tubes keep their size in
+    /// metres across objects and projections.
     public var edgeThickness: Double
     public var edgeColor: EdgeColorMode
     /// Face opacity 0…1.
@@ -146,7 +147,8 @@ public struct MotionSettings: Codable, Equatable, Sendable {
 public enum TransparencyMethod: String, Codable, CaseIterable, Sendable {
     /// `.add` blending without depth writes: order independent, glowing look.
     case additive
-    /// Alpha blending; triangles sorted back to front along −z of the box every frame.
+    /// Alpha blending; triangles sorted back to front every frame, towards the side of the volume
+    /// the viewer is on (`ViewSide`).
     case sorted
     /// One entity pair per cell (only with explode > 0); RealityKit sorts the entities.
     case perCellEntities = "cells"
@@ -194,6 +196,31 @@ public struct DuoprismParameters: Codable, Equatable, Sendable {
     public static let range: ClosedRange<Int> = 3...24
 }
 
+/// Which side of the volume the viewer is on (D17). A volumetric window gets no head pose, only
+/// this (`onVolumeViewpointChange`); it sets the sort direction of the "sorted" transparency method.
+public enum ViewSide: String, Codable, CaseIterable, Sendable {
+    case front, right, back, left
+
+    /// Unit vector from the content towards the viewer, in box coordinates (y up, +z towards the
+    /// front). That "right" means the viewer stands at +x is an assumption [verify on device].
+    public var direction: SIMD3<Float> {
+        switch self {
+        case .front: [0, 0, 1]
+        case .right: [1, 0, 0]
+        case .back: [0, 0, -1]
+        case .left: [-1, 0, 0]
+        }
+    }
+}
+
+extension Orientation4D {
+    /// Start and reset orientation (D18): a pure 3D tilt, 35° in XZ and then 25° in YZ. W stays
+    /// the projection axis, so in perspective the tesseract shows its cube inside a cube, and every
+    /// object is seen obliquely instead of edge-on.
+    public static let start = Orientation4D(matrix: Rotation4D.plane(.yz, angle: 25 * .pi / 180)
+                                                * Rotation4D.plane(.xz, angle: 35 * .pi / 180))
+}
+
 /// The single source of truth for what is shown (DESIGN 6.2). Presets are named partial
 /// assignments of it; it is `Codable` for launch arguments, snapshots and saving later.
 public struct ViewState: Codable, Equatable, Sendable {
@@ -203,7 +230,7 @@ public struct ViewState: Codable, Equatable, Sendable {
     public var display: DisplaySettings
     public var motion: MotionSettings
     public var orientation: Orientation4D
-    /// User scale on top of the host's default scale.
+    /// The user's size factor on top of the automatic size (`SizeFit`, D15).
     public var scale: Double
     public var developer: DeveloperSettings
 
@@ -212,7 +239,7 @@ public struct ViewState: Codable, Equatable, Sendable {
                 projection: ProjectionSettings = ProjectionPreset.perspective.settings,
                 display: DisplaySettings = .defaults,
                 motion: MotionSettings = MotionSettings(omega: MotionPreset.simple.omega),
-                orientation: Orientation4D = .identity,
+                orientation: Orientation4D = .start,
                 scale: Double = 1,
                 developer: DeveloperSettings = DeveloperSettings()) {
         self.object = object

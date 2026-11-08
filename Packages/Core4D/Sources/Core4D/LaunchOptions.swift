@@ -16,6 +16,7 @@ import Foundation
 /// - `transparency` (additive/sorted/cells), `overlay` (0/1), `gestureTest` (0/1), `fine` (0/1),
 ///   `shadowMethod` (light/grounding)
 /// - `panel` (control-panel tab), `room` (0/1: open the immersive space at launch)
+/// - `viewpoint` (front/right/back/left: fixes the viewer side and ignores the system's updates)
 public struct LaunchConfiguration: Equatable, Sendable {
     public var state: ViewState
     /// If set, the orientation is integrated for this many seconds and time is frozen.
@@ -24,15 +25,18 @@ public struct LaunchConfiguration: Equatable, Sendable {
     public var panel: String?
     /// Whether to open the immersive space at launch.
     public var opensRoom: Bool
+    /// Fixed viewer side (snapshot mode); nil = follow the system.
+    public var viewSide: ViewSide?
     /// Keys whose values could not be understood; reported in the log.
     public var problems: [String]
 
     public init(state: ViewState = ViewState(), time: Double? = nil, panel: String? = nil,
-                opensRoom: Bool = false, problems: [String] = []) {
+                opensRoom: Bool = false, viewSide: ViewSide? = nil, problems: [String] = []) {
         self.state = state
         self.time = time
         self.panel = panel
         self.opensRoom = opensRoom
+        self.viewSide = viewSide
         self.problems = problems
     }
 
@@ -96,6 +100,7 @@ public struct LaunchConfiguration: Equatable, Sendable {
         }
         config.panel = args["panel"]
         if let r = value("room", bool) { config.opensRoom = r }
+        if let v = value("viewpoint", ViewSide.init(rawValue:)) { config.viewSide = v }
 
         config.state = s
         return config

@@ -6,8 +6,12 @@ import RealityKit
 import simd
 
 /// Transparency method 3 (spike S1, DESIGN 6.5): one entity pair per cell, only with explode > 0.
-/// RealityKit sorts the cells as separate entities; within a convex cell the back faces are drawn
-/// before the front faces (one `ModelSortGroup` per cell plus face culling).
+/// RealityKit sorts the cells as separate entities; within a convex cell the inner sides are drawn
+/// before the outer sides (one `ModelSortGroup` per cell).
+///
+/// The cell's faces are wound outwards. The back entity holds the back copies (inner sides, normals
+/// inwards), the front entity the front copies (outer sides, normals outwards); both use back-face
+/// culling, so each draws exactly the half of the cell that faces the camera (D16).
 ///
 /// Each cell entity is placed at its cell's centroid (its vertices are stored relative to it), so
 /// that RealityKit's distance sort sees where the cell actually is.
@@ -16,12 +20,12 @@ final class CellEntities {
     let container = Entity()
     private var groupPoints: [Range<Int>] = []
     private var groupTriangles: [Range<Int>] = []
-    private var meshes: [DynamicMesh] = []
+    private var frontMeshes: [DynamicMesh] = []
+    private var backMeshes: [DynamicMesh] = []
     private var backEntities: [ModelEntity] = []
     private var frontEntities: [ModelEntity] = []
     private var needsEntities = false
-    private var backMaterial: (any RealityKit.Material)?
-    private var frontMaterial: (any RealityKit.Material)?
+    private var material: (any RealityKit.Material)?
     private var scratch: [MeshVertex] = []
 
     init() {
@@ -34,14 +38,14 @@ final class CellEntities {
         groupTriangles = triangles
         needsEntities = true
         for child in Array(container.children) { child.removeFromParent() }
-        meshes = []
+        frontMeshes = []
+        backMeshes = []
         backEntities = []
         frontEntities = []
     }
 
-    func setMaterials(backFaces: any RealityKit.Material, frontFaces: any RealityKit.Material) {
-        backMaterial = backFaces
-        frontMaterial = frontFaces
+    func setMaterial(_ material: any RealityKit.Material) {
+        self.material = material
         ensureEntities()
         applyMaterials()
     }
@@ -50,8 +54,10 @@ final class CellEntities {
         guard needsEntities else { return }
         needsEntities = false
         for g in groupPoints.indices {
-            guard let mesh = try? DynamicMesh(vertexCapacity: groupPoints[g].count,
-                                              indexCapacity: groupTriangles[g].count * 3) else { continue }
+            let vertices = groupPoints[g].count
+            let indices = groupTriangles[g].count * 3
+            guard let frontMesh = try? DynamicMesh(vertexCapacity: vertices, indexCapacity: indices),
+                  let backMesh = try? DynamicMesh(vertexCapacity: vertices, indexCapacity: indices) else { continue }
             let group = ModelSortGroup(depthPass: nil)
             let back = ModelEntity()
             back.name = "Cell\(g)-back"
@@ -63,7 +69,8 @@ final class CellEntities {
             front.components.set(DynamicLightShadowComponent(castsShadow: true))
             container.addChild(back)
             container.addChild(front)
-            meshes.append(mesh)
+            frontMeshes.append(frontMesh)
+            backMeshes.append(backMesh)
             backEntities.append(back)
             frontEntities.append(front)
         }
@@ -71,19 +78,21 @@ final class CellEntities {
     }
 
     private func applyMaterials() {
-        guard let backMaterial, let frontMaterial else { return }
-        for g in meshes.indices {
-            backEntities[g].model = ModelComponent(mesh: meshes[g].resource, materials: [backMaterial])
-            frontEntities[g].model = ModelComponent(mesh: meshes[g].resource, materials: [frontMaterial])
+        guard let material else { return }
+        for g in frontMeshes.indices {
+            backEntities[g].model = ModelComponent(mesh: backMeshes[g].resource, materials: [material])
+            frontEntities[g].model = ModelComponent(mesh: frontMeshes[g].resource, materials: [material])
         }
     }
 
-    /// Writes every cell's vertices (relative to the cell centroid) and its outward-wound indices.
-    func upload(_ b: FrameBuilder, viewDirection: SIMD3<Float>) {
+    /// Writes every cell's front and back copies (vertices relative to the cell centroid) and
+    /// their indices.
+    func upload(_ b: FrameBuilder) {
         ensureEntities()
-        let ranges = b.groupIndexRanges
-        guard ranges.count == meshes.count else { return }
-        for g in meshes.indices {
+        let fronts = b.groupIndexRanges
+        let backs = b.groupBackIndexRanges
+        guard fronts.count == frontMeshes.count, backs.count == backMeshes.count else { return }
+        for g in frontMeshes.indices {
             let points = groupPoints[g]
             var centroid = SIMD3<Float>.zero
             var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
@@ -94,27 +103,27 @@ final class CellEntities {
                 hi = simd_max(hi, p)
             }
             centroid /= Float(max(1, points.count))
-            scratch.removeAll(keepingCapacity: true)
-            for i in points {
-                var v = b.faceVertices[i]
-                v.position -= centroid
-                scratch.append(v)
-            }
-            let bounds = ranges[g].isEmpty ? BoundingBox() : BoundingBox(min: lo - centroid, max: hi - centroid)
-            // Indices are relative to the group's first point; `scratch` starts at that point.
-            meshes[g].update(vertices: scratch, vertexRange: 0..<points.count,
-                             indices: b.faceIndices.rebased(from: points.lowerBound, range: ranges[g]),
-                             indexRange: 0..<ranges[g].count, bounds: bounds)
+            let bounds = fronts[g].isEmpty ? BoundingBox() : BoundingBox(min: lo - centroid, max: hi - centroid)
+            write(frontMeshes[g], b, firstVertex: points.lowerBound, count: points.count,
+                  indices: fronts[g], centroid: centroid, bounds: bounds)
+            write(backMeshes[g], b, firstVertex: b.backVertexOffset + points.lowerBound, count: points.count,
+                  indices: backs[g], centroid: centroid, bounds: bounds)
             backEntities[g].position = centroid
             frontEntities[g].position = centroid
         }
     }
-}
 
-private extension Array where Element == UInt32 {
-    /// A copy of `self[range]` with `offset` subtracted from every index.
-    func rebased(from offset: Int, range: Range<Int>) -> [UInt32] {
-        let o = UInt32(offset)
-        return self[range].map { $0 - o }
+    /// Copies `count` vertices starting at `firstVertex`, moved by −centroid, and the indices of
+    /// `indices` rebased to them.
+    private func write(_ mesh: DynamicMesh, _ b: FrameBuilder, firstVertex: Int, count: Int, indices: Range<Int>,
+                       centroid: SIMD3<Float>, bounds: BoundingBox) {
+        scratch.removeAll(keepingCapacity: true)
+        for i in firstVertex..<(firstVertex + count) {
+            var v = b.faceVertices[i]
+            v.position -= centroid
+            scratch.append(v)
+        }
+        mesh.update(vertices: scratch, vertexRange: 0..<count, indices: b.faceIndices, indexRange: indices,
+                    indexBase: UInt32(firstVertex), bounds: bounds)
     }
 }

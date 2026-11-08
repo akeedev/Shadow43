@@ -34,3 +34,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         SWIFT_EMIT_LOC_STRINGS: YES
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+      configs:
+        # Optimised in Debug too, so a normal Run shows the real speed (D11). Debug info stays.
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"

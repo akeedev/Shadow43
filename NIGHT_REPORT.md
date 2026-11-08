@@ -119,6 +119,35 @@ project and run the Shadow43 scheme on the Vision Pro. Turn on Developer → Per
 - **Floor-shadow method:** the S4 fallback (grounding shadow) is a Developer switch rather than a
   code change.
 
+## Changes after v0.9 (day session, 2026-11-08)
+Decided with the user after the night run (DESIGN D11 extended, D15–D18):
+- **D11:** the app target is now also compiled with `-O` in Debug, so a normal Run shows the real
+  speed.
+- **D15, automatic size:** each object fills 75 % of the volume (80 % touched the floor disc), measured by the 90th-percentile
+  vertex radius over 32 orientations. *Size* moved from Developer to Display and is a factor on
+  top. Edge thickness is relative to the fitted radius.
+- **D16, flipped faces:** each face triangle has a front copy and a back copy with its own normals,
+  so lit styles are correct from every side.
+- **D17, viewer side:** the window sorts towards the side of the volume the viewer is on
+  (`onVolumeViewpointChange`). The Developer section shows the side; `-viewpoint` fixes it.
+  ARKit head pose in the room comes later.
+- **D18, start orientation:** a 3D tilt, so the tesseract starts as a cube inside a cube.
+
+New screenshots (`M7-…`): `tesseract-start` (cube inside a cube, automatic size) [OK],
+`24cell-solid-lit` [OK], `120cell-stereographic-fit` [OK, outer cells cut as intended],
+`klein-bottle-glossy` [OK], `tesseract-per-cell-entities` [OK], `sorted-viewpoint-back` [renders;
+panel line with the side is off-screen in the simulator], `S2-stress-optimised-app` [18–23 ms,
+simulator noise, see DESIGN §8].
+
+Changes to the device checklist:
+- **Step 1:** expect the tilted cube inside a cube, filling most of the volume.
+- **Step 3:** with *Sorted*, walk to each side and check Developer → "Viewer side". If it says
+  Left when you stand on the right, `ViewSide.direction` needs left and right swapped. Between the
+  four sides small sorting errors are expected.
+- **Step 4 (new part):** with *Solid* and *Glossy*, walk around the volume. Faces should be lit
+  correctly from behind too, not dark.
+- **Size:** Display → Size (×0.25–4) replaces Developer → Scale.
+
 ## Files
 New, unless marked as changed.
 - **Root:** `project.yml`, `NIGHT_REPORT.md`; changed: `DESIGN.md` (§7 D11–D14, §8 findings),
