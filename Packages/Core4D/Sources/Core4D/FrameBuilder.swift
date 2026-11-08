@@ -29,11 +29,14 @@ public enum FrameColorMode: Equatable, Sendable {
     case surfaceParameter
     /// u = curve key (key.x), for a gradient texture.
     case curveKey
+    /// The fixed pattern coordinates of the face points (`RenderMesh4D.facePatternUV`), for a
+    /// repeating image pattern (D24). Faces only; edges treat it as uniform.
+    case pattern
 
     @inline(__always)
     func uv(key: SIMD2<Float>, w: Float) -> SIMD2<Float> {
         switch self {
-        case .uniform: SIMD2(0.5, 0.5)
+        case .uniform, .pattern: SIMD2(0.5, 0.5)
         case .byW: SIMD2(min(max((w + 1) * 0.5, 0.002), 0.998), 0.5)
         case .palette(let n):
             SIMD2((Float(Int(key.x) % max(1, n)) + 0.5) / Float(max(1, n)), 0.5)
@@ -63,11 +66,15 @@ public struct FrameParameters: Equatable, Sendable {
     public var epsilon: Float
     /// Points farther than this from the origin (object units) are culled.
     public var maxRadius: Float
+    /// Half the face thickness in object units (D24): front copies move this far along their
+    /// normal, back copies as far the other way, so every face becomes a slab. 0 = thin films.
+    public var faceOffset: Float
 
     public init(rotation: simd_float4x4 = matrix_identity_float4x4, kappa: Float = 0, spherize: Float = 0,
                 faceColors: FrameColorMode = .uniform, edgeColors: FrameColorMode = .uniform,
                 edgeRadius: Float = 0.01, sortFaces: Bool = false, orientCellFaces: Bool = false,
-                viewDirection: SIMD3<Float> = [0, 0, 1], epsilon: Float = 0.02, maxRadius: Float = 20) {
+                viewDirection: SIMD3<Float> = [0, 0, 1], epsilon: Float = 0.02, maxRadius: Float = 20,
+                faceOffset: Float = 0) {
         self.rotation = rotation
         self.kappa = kappa
         self.spherize = spherize
@@ -79,6 +86,7 @@ public struct FrameParameters: Equatable, Sendable {
         self.viewDirection = viewDirection
         self.epsilon = epsilon
         self.maxRadius = maxRadius
+        self.faceOffset = faceOffset
     }
 }
 
@@ -202,12 +210,15 @@ public final class FrameBuilder {
         let points = mesh.facePoints
         let maxR2 = p.maxRadius * p.maxRadius
         let mode = p.faceColors
+        let patternUV = mesh.facePatternUV
+        let usesPattern = mode == .pattern && patternUV.count == points.count
         faceVertices.withUnsafeMutableBufferPointer { verts in
             faceValid.withUnsafeMutableBufferPointer { valid in
                 for i in 0..<points.count {
                     let (q, w, ok) = Self.project(flat: points.flat[i], sphere: points.sphere[i], p, maxRadius2: maxR2)
                     valid[i] = ok
-                    verts[i] = MeshVertex(position: q, normal: .zero, uv: mode.uv(key: points.colorKey[i], w: w))
+                    let uv = usesPattern ? patternUV[i] : mode.uv(key: points.colorKey[i], w: w)
+                    verts[i] = MeshVertex(position: q, normal: .zero, uv: uv)
                     if ok {
                         lo = simd_min(lo, q)
                         hi = simd_max(hi, q)
@@ -246,7 +257,11 @@ public final class FrameBuilder {
         // Optional outward winding per cell (per-cell transparency), then unit normals and the
         // back copies.
         let flips = p.orientCellFaces && computeCellWinding(p)
-        finishNormals(flipped: flips)
+        finishNormals(flipped: flips, offset: p.faceOffset)
+        if p.faceOffset > 0, lo.x <= hi.x {
+            lo -= SIMD3(repeating: p.faceOffset)
+            hi += SIMD3(repeating: p.faceOffset)
+        }
 
         // Index buffer: in mesh order (cell groups contiguous) or sorted back to front. Each
         // triangle is emitted as a front copy and as a back copy with reversed winding.
@@ -319,8 +334,9 @@ public final class FrameBuilder {
 
     /// Normalises the accumulated normals, so they follow the triangle winding; negates the
     /// normals of polygons that `computeCellWinding` reversed; and writes the back copies with
-    /// negated normals.
-    private func finishNormals(flipped: Bool) {
+    /// negated normals. With an offset (thick faces, D24) each copy moves that far along its own
+    /// normal.
+    private func finishNormals(flipped: Bool, offset: Float) {
         let n = backVertexOffset
         let polygonsHavePoints = mesh.polygonPointRanges.count == mesh.polygonTriangleRanges.count
         faceVertices.withUnsafeMutableBufferPointer { verts in
@@ -339,6 +355,10 @@ public final class FrameBuilder {
             for i in 0..<n {
                 var b = verts[i]
                 b.normal = -b.normal
+                if offset > 0 {
+                    b.position += b.normal * offset
+                    verts[i].position += verts[i].normal * offset
+                }
                 verts[n + i] = b
             }
         }

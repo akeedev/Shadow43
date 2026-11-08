@@ -26,6 +26,10 @@ public struct RenderMesh4D: Sendable {
     }
 
     public var facePoints = PointSet()
+    /// Pattern coordinates of every face point (D24), fixed on the object: for polygons the
+    /// point's position in the polygon's own plane, for surfaces the scaled surface parameters.
+    /// One texture repeat is `Tessellation.patternUnit` object units.
+    public var facePatternUV: [SIMD2<Float>] = []
     /// Three indices into `facePoints` per triangle. Within a polygon (or a surface) all triangles
     /// have the same orientation, so normals that follow the winding are consistent (D16).
     public var triangles: [UInt32] = []
@@ -76,6 +80,11 @@ public struct TessellationOptions: Equatable, Sendable {
 
 /// Turns a `Complex4D` into a `RenderMesh4D`.
 public enum Tessellation {
+    /// Object units per pattern repeat on polygons: four repeats along a tesseract edge.
+    public static let patternUnit = 0.25
+    /// Pattern repeats along each surface parameter (u and v run over 0…1).
+    public static let surfacePatternRepeats: Float = 8
+
     /// - Parameters:
     ///   - explode: fraction e; each cell shrinks towards its centre, `v' = c + (1 − e)(v − c)`.
     ///     With e > 0 every cell gets its own faces and edges. Applied before spherizing.
@@ -135,10 +144,16 @@ public enum Tessellation {
         let centre = corners.reduce(SIMD4<Double>.zero, +) / Double(count)
         let base = mesh.facePoints.count
         let triStart = mesh.triangleCount
+        let (e1, e2) = planeBasis(corners, centre: centre)
+        func addPoint(_ p: SIMD4<Double>) {
+            mesh.facePoints.append(p, key: key)
+            let d = p - centre
+            mesh.facePatternUV.append(SIMD2<Float>(SIMD2(simd_dot(d, e1), simd_dot(d, e2)) / patternUnit))
+        }
 
         // Points: centre, then ring r = 1…m with r·count points each. Ring r, position q lies on
         // fan triangle i = q / r at offset k = q % r from corner i towards corner i+1.
-        mesh.facePoints.append(centre, key: key)
+        addPoint(centre)
         for r in 1...m {
             let t = Double(r) / Double(m)
             for q in 0..<(r * count) {
@@ -147,7 +162,7 @@ public enum Tessellation {
                 let a = corners[i]
                 let b = corners[(i + 1) % count]
                 let onRing = a + k * (b - a)
-                mesh.facePoints.append(centre + t * (onRing - centre), key: key)
+                addPoint(centre + t * (onRing - centre))
             }
         }
         func index(ring r: Int, position q: Int) -> UInt32 {
@@ -177,6 +192,23 @@ public enum Tessellation {
         mesh.polygonTriangleRanges.append(triStart..<mesh.triangleCount)
     }
 
+    /// An orthonormal basis of a planar polygon's plane in ℝ⁴: the direction of the first edge (so a
+    /// grid runs parallel to it), and the part of the direction to the corner farthest from that
+    /// line that is orthogonal to it.
+    static func planeBasis(_ corners: [SIMD4<Double>], centre: SIMD4<Double>)
+        -> (SIMD4<Double>, SIMD4<Double>) {
+        let first = corners[1] - corners[0]
+        let e1 = simd_length(first) > 0 ? simd_normalize(first) : SIMD4(1, 0, 0, 0)
+        var best = SIMD4<Double>.zero
+        for c in corners.dropFirst() {
+            let d = c - centre
+            let orthogonal = d - simd_dot(d, e1) * e1
+            if simd_length(orthogonal) > simd_length(best) { best = orthogonal }
+        }
+        let e2 = simd_length(best) > 1e-12 ? simd_normalize(best) : SIMD4(0, 1, 0, 0)
+        return (e1, e2)
+    }
+
     /// A straight segment in ℝ⁴ as a polyline of n pieces; on S³ it becomes a great-circle arc.
     static func addSegment(_ a: SIMD4<Double>, _ b: SIMD4<Double>, key: SIMD2<Float>, segments n: Int,
                            to mesh: inout RenderMesh4D) {
@@ -199,6 +231,7 @@ public enum Tessellation {
         let uv = c.uv ?? Array(repeating: .zero, count: c.vertices.count)
         for (i, v) in c.vertices.enumerated() {
             mesh.facePoints.append(v, key: SIMD2<Float>(uv[i]))
+            mesh.facePatternUV.append(SIMD2<Float>(uv[i]) * surfacePatternRepeats)
         }
         for f in c.faces {
             let vs = f.vertices.map(UInt32.init)

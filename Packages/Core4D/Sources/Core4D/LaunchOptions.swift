@@ -10,12 +10,15 @@ import Foundation
 /// - `object` (ObjectID raw value), `p`, `q` (duoprism)
 /// - `projection` (preset), `kappa`, `spherize`
 /// - `display` (preset), `edges` (0/1), `thickness`, `edgeColor` (faces/light), `opacity`,
-///   `colors` (ColorSource raw value), `style` (matte/glossy/glowing), `explode`, `floorShadow` (0/1)
+///   `colors` (ColorSource raw value), `style` (matte/glossy/glowing/metal/ceramic/frosted),
+///   `explode`, `floorShadow` (0/1), `axes` (0/1), `pattern` (none/grid/marble/wood),
+///   `faceThickness` (0…0.08)
 /// - `motion` (preset or `none`), `omega` ("xy,xz,yz,xw,yw,zw"), `friction`
 /// - `scale`, `time` (seconds; freezes time after integrating the motion for that long)
 /// - `transparency` (additive/sorted/cells), `overlay` (0/1), `gestureTest` (0/1), `fine` (0/1),
 ///   `shadowMethod` (light/grounding)
-/// - `panel` (control-panel tab), `room` (0/1: open the immersive space at launch)
+/// - `panel` (control-panel tab), `room` (0/1: open the immersive space at launch),
+///   `help` (`about`, a tab or an object: opens the help window in "?" mode)
 /// - `viewpoint` (front/right/back/left: fixes the viewer side and ignores the system's updates)
 public struct LaunchConfiguration: Equatable, Sendable {
     public var state: ViewState
@@ -23,6 +26,8 @@ public struct LaunchConfiguration: Equatable, Sendable {
     public var time: Double?
     /// Control-panel tab to show at launch.
     public var panel: String?
+    /// Help window to open at launch, in "?" mode: `about`, a tab or an object (read by the app).
+    public var help: String?
     /// Whether to open the immersive space at launch.
     public var opensRoom: Bool
     /// Fixed viewer side (snapshot mode); nil = follow the system.
@@ -38,6 +43,20 @@ public struct LaunchConfiguration: Equatable, Sendable {
         self.opensRoom = opensRoom
         self.viewSide = viewSide
         self.problems = problems
+    }
+
+    /// Every key `parse` reads.
+    public static let recognizedKeys: Set<String> = [
+        "object", "p", "q", "projection", "kappa", "spherize", "display", "edges", "thickness",
+        "edgeColor", "opacity", "colors", "style", "explode", "floorShadow", "axes", "pattern",
+        "faceThickness", "motion", "omega", "friction", "scale", "transparency", "overlay",
+        "gestureTest", "fine", "shadowMethod", "time", "panel", "help", "room", "viewpoint",
+    ]
+
+    /// Snapshot mode: at least one recognised key is given. The app then starts from the default
+    /// settings instead of the saved ones and saves nothing (D29), so snapshots are reproducible.
+    public static func isSnapshot(_ args: [String: String]) -> Bool {
+        args.keys.contains(where: recognizedKeys.contains)
     }
 
     /// Parses launch arguments given as a key → string dictionary (the `UserDefaults` argument
@@ -78,6 +97,11 @@ public struct LaunchConfiguration: Equatable, Sendable {
         if let st = value("style", FaceStyle.init(rawValue:)) { s.display.faceStyle = st }
         if let e = value("explode", double) { s.display.explode = e.clamped(to: DisplaySettings.explodeRange) }
         if let f = value("floorShadow", bool) { s.display.floorShadow = f }
+        if let a = value("axes", bool) { s.display.axesVisible = a }
+        if let pt = value("pattern", SurfacePattern.init(rawValue:)) { s.display.pattern = pt }
+        if let ft = value("faceThickness", double) {
+            s.display.faceThickness = ft.clamped(to: DisplaySettings.faceThicknessRange)
+        }
 
         if let m = args["motion"] {
             if m == "none" { s.motion.omega = .zero }
@@ -99,6 +123,7 @@ public struct LaunchConfiguration: Equatable, Sendable {
             s.developer.freezesTime = true
         }
         config.panel = args["panel"]
+        config.help = args["help"]
         if let r = value("room", bool) { config.opensRoom = r }
         if let v = value("viewpoint", ViewSide.init(rawValue:)) { config.viewSide = v }
 

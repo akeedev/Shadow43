@@ -5,12 +5,18 @@ import simd
 
 /// Maps gestures to rotations (DESIGN 3.6, 6.4, variant A). Pure functions so they can be tested.
 public struct GestureMapping: Codable, Equatable, Sendable {
-    /// k: radians of 4D rotation per metre of drag. Start value 2π per 0.3 m.
+    /// k: radians of 4D rotation per metre of drag.
     public var radiansPerMetre: Double
     /// +1 or −1: whether dragging right turns X towards +W or −W.
     public var sign: Double
 
-    public init(radiansPerMetre: Double = 2 * .pi / 0.3, sign: Double = 1) {
+    /// Default k: 10 rad per metre of drag, a full turn per 0.63 m (D26). The first value, 2π per
+    /// 0.3 m, was far too sensitive on the device; the user settled on 10.
+    public static let defaultRadiansPerMetre = 10.0
+    /// Range of the Developer slider, with the default in its middle.
+    public static let radiansPerMetreRange: ClosedRange<Double> = 2...18
+
+    public init(radiansPerMetre: Double = GestureMapping.defaultRadiansPerMetre, sign: Double = 1) {
         self.radiansPerMetre = radiansPerMetre
         self.sign = sign
     }

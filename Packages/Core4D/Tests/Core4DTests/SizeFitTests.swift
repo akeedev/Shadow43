@@ -62,7 +62,28 @@ struct SizeFitTests {
         #expect(abs(SizeFit.metresPerUnit(fittedRadius: 2, boxSide: 0.8, sizeFactor: 1.5) - 1.5 * m) < 1e-12)
     }
 
+    @Test func enlargedObjectsRiseSoTheirBottomStays() {
+        #expect(SizeFit.lift(boxSide: 1, sizeFactor: 1) == 0)
+        #expect(SizeFit.lift(boxSide: 1, sizeFactor: 0.5) == 0)
+        // Bottom of the fitted radius = lift − r: the same at factor 1 and factor 2.
+        let r = { (factor: Double) in 0.5 * SizeFit.fillFraction * 1.0 * factor }
+        #expect(abs((SizeFit.lift(boxSide: 1, sizeFactor: 2) - r(2)) - (0 - r(1))) < 1e-12)
+    }
+
     @Test func emptyInputGivesOne() {
         #expect(SizeFit.radius(of: [SIMD4<Double>](), projection: orthographic) == 1)
+    }
+
+    @Test func thicknessKeepsItsSizeInMetresWhenZoomed() {
+        // D28: at size factor 1 in the reference box it is relative × fitted radius …
+        let radius = 1.7, relative = 0.01
+        let m1 = SizeFit.metresPerUnit(fittedRadius: radius, boxSide: 1, sizeFactor: 1)
+        #expect(abs(SizeFit.fixedLength(relative, referenceSide: 1, metresPerUnit: m1) - relative * radius) < 1e-12)
+        // … and the same in metres at any size factor and window size.
+        let metres = SizeFit.fixedLength(relative, referenceSide: 1, metresPerUnit: m1) * m1
+        for (factor, box) in [(3.0, 1.0), (0.5, 1.0), (1.0, 2.0), (2.5, 0.6)] {
+            let m = SizeFit.metresPerUnit(fittedRadius: radius, boxSide: box, sizeFactor: factor)
+            #expect(abs(SizeFit.fixedLength(relative, referenceSide: 1, metresPerUnit: m) * m - metres) < 1e-12)
+        }
     }
 }

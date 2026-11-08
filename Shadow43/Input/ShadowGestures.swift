@@ -30,9 +30,12 @@ struct ShadowGestures: ViewModifier {
             .simultaneousGesture(doubleTapGesture)
     }
 
+    /// Only the object's input target (`ShadowInputComponent`), not e.g. the room's floor disc.
+    private static let target = QueryPredicate<Entity>.has(ShadowInputComponent.self)
+
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
-            .targetedToAnyEntity()
+            .targetedToEntity(where: Self.target)
             .onChanged { value in
                 let p = SIMD3<Double>(value.convert(value.location3D, from: .local, to: value.entity))
                 let now = ProcessInfo.processInfo.systemUptime
@@ -67,7 +70,7 @@ struct ShadowGestures: ViewModifier {
 
     private var twistGesture: some Gesture {
         RotateGesture3D()
-            .targetedToAnyEntity()
+            .targetedToEntity(where: Self.target)
             .onChanged { value in
                 let q = Self.realityKitQuaternion(value.rotation.quaternion)
                 if let last = lastTwist {
@@ -84,7 +87,7 @@ struct ShadowGestures: ViewModifier {
 
     private var magnifyGesture: some Gesture {
         MagnifyGesture()
-            .targetedToAnyEntity()
+            .targetedToEntity(where: Self.target)
             .onChanged { value in
                 let start = scaleAtStart ?? model.scale
                 scaleAtStart = start
@@ -96,7 +99,7 @@ struct ShadowGestures: ViewModifier {
 
     private var doubleTapGesture: some Gesture {
         SpatialTapGesture(count: 2)
-            .targetedToAnyEntity()
+            .targetedToEntity(where: Self.target)
             .onEnded { _ in
                 model.resetOrientation()
                 model.gestureLog.record(tap: "double tap → reset")

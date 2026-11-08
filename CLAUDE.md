@@ -63,6 +63,8 @@ Commands (PROJ = `/Users/andreas/Develop/visionpro_shadow43`):
      locate promise"`; if that happens, wait and retry once.
   4. `xcrun simctl install booted <app path>`
   5. `xcrun simctl launch --terminate-running-process booted com.example.shadow43 -object tesseract …`
+     If `Config/Signing.local.xcconfig` exists, it overrides the bundle ID, also for simulator
+     builds: use the ID from that file (never copy it into tracked files).
   6. `xcrun simctl io booted screenshot PROJ/build/screenshots/<name>.png`, then look at the image
      with the Read tool.
   7. Shut down at the end with `xcrun simctl shutdown all`.

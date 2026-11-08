@@ -15,6 +15,16 @@ struct GestureTests {
         #expect(maxAbsDifference(r, expected) < 1e-12)
     }
 
+    @Test func defaultGainIsTenInTheMiddleOfItsRange() {
+        // D26: 10 rad per metre, a full turn per 2π/10 ≈ 0.63 m of drag.
+        let mapping = GestureMapping()
+        #expect(mapping.radiansPerMetre == 10)
+        let range = GestureMapping.radiansPerMetreRange
+        #expect(abs((range.lowerBound + range.upperBound) / 2 - mapping.radiansPerMetre) < 1e-12)
+        let r = mapping.rotation(forDrag: [2 * .pi / 10, 0, 0])
+        #expect(maxAbsDifference(r, matrix_identity_double4x4) < 1e-12)
+    }
+
     @Test func dragDirectionsMapToTheirPlanes() {
         let m = GestureMapping(radiansPerMetre: 3)
         #expect(maxAbsDifference(m.rotation(forDrag: [0, 0.1, 0]), Rotation4D.plane(.yw, angle: 0.3)) < 1e-12)

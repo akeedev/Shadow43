@@ -77,4 +77,19 @@ public enum SizeFit {
     public static func metresPerUnit(fittedRadius: Double, boxSide: Double, sizeFactor: Double) -> Double {
         0.5 * fillFraction * boxSide / max(fittedRadius, 1e-9) * sizeFactor
     }
+
+    /// A length given relative to the fitted radius (edge and face thickness), in object units
+    /// for the current `metresPerUnit`, such that it keeps its size in metres when the object is
+    /// zoomed or the window resized (D28). It equals `relative × fittedRadius` at size factor 1
+    /// in a box of `referenceSide` metres.
+    public static func fixedLength(_ relative: Double, referenceSide: Double, metresPerUnit: Double) -> Double {
+        relative * 0.5 * fillFraction * referenceSide / max(metresPerUnit, 1e-12)
+    }
+
+    /// How far (metres) the object's centre rises when the size factor is above 1, so that its
+    /// fitted bottom stays where it is at factor 1, above the floor disc (D21). Smaller objects
+    /// stay centred.
+    public static func lift(boxSide: Double, sizeFactor: Double) -> Double {
+        0.5 * fillFraction * boxSide * max(0, sizeFactor - 1)
+    }
 }

@@ -26,6 +26,32 @@ final class AppModel {
 
     /// Control-panel tab shown.
     var panelTab: PanelTab = .object
+    /// "?" mode: tapping a control explains it in the info window instead of using it (D22).
+    var isHelpMode = false
+    /// What the info window shows.
+    var helpTopic: HelpTopic = .about
+    /// Whether the info window beside the volume is open; the volume opens and closes it (D25).
+    var showsHelp = false
+    /// Set when the volume or the controls window closes: every other window, and the room, then
+    /// close themselves, so the whole app closes (D34).
+    var isClosing = false
+
+    /// Shows a topic in the info window.
+    func showHelp(_ topic: HelpTopic) {
+        helpTopic = topic
+        showsHelp = true
+    }
+
+    /// Closes the info window and leaves "?" mode.
+    func closeHelp() {
+        showsHelp = false
+        isHelpMode = false
+    }
+    /// Whether the settings are saved between launches; false in snapshot mode (D29).
+    @ObservationIgnored var persistsSettings = false
+    /// The settings to keep between launches (D29).
+    var savedSettings: SavedSettings { SavedSettings(state: viewState, gestureMapping: gestureMapping) }
+
     /// Whether the immersive space is open.
     var isRoomOpen = false
     /// Launch-argument problems, shown in the Developer section.
@@ -85,6 +111,22 @@ final class AppModel {
     /// Stop: Ω = 0.
     func stop() { motion.omega = .zero }
 
+    /// Choosing a material, pattern or thickness means the faces should be seen (D24): hidden
+    /// faces (opacity near 0, e.g. Wireframe) become opaque, or half transparent for frosted glass.
+    func showFaces() {
+        let target = display.faceStyle == .frostedGlass ? 0.5 : 1
+        if display.faceOpacity < 0.05 { display.faceOpacity = target }
+        if display.faceStyle == .frostedGlass, display.faceOpacity > 0.9 { display.faceOpacity = target }
+    }
+
+    /// "Reset all": every setting back to its default, including the developer settings, the
+    /// drag mapping and a viewer side fixed by launch argument. Tab and help mode stay.
+    func resetAll() {
+        viewState = ViewState()
+        gestureMapping = GestureMapping()
+        viewSideOverride = nil
+    }
+
     @ObservationIgnored private var lastTick: TimeInterval?
 
     /// Advances the motion once per frame (DESIGN 6.3, step 1). Every host's renderer calls it;
@@ -116,6 +158,14 @@ final class AppModel {
         if let tab = config.panel.flatMap(PanelTab.init(rawValue:)) { panelTab = tab }
         viewSideOverride = config.viewSide
         launchProblems = config.problems
+        if let raw = config.help {
+            if let topic = HelpTopic(launchValue: raw) {
+                showHelp(topic)
+                isHelpMode = topic != .about
+            } else {
+                launchProblems.append("help=\(raw)")
+            }
+        }
     }
 
     /// The colour source and explode that are actually used for the current object.
@@ -125,7 +175,7 @@ final class AppModel {
 
 /// Tabs of the control panel (DESIGN 3.6). The raw value is the `-panel` launch argument.
 enum PanelTab: String, CaseIterable, Identifiable {
-    case object, projection, display, motion, developer
+    case object, projection, display, surface, motion, developer
     var id: String { rawValue }
 }
 

@@ -57,6 +57,18 @@ struct LaunchOptionsTests {
         #expect(ViewState().orientation == .start)
     }
 
+    @Test func passesTheHelpTopicThrough() {
+        #expect(LaunchConfiguration.parse([:]).help == nil)
+        #expect(LaunchConfiguration.parse(["help": "tesseract"]).help == "tesseract")
+    }
+
+    @Test func parsesAxes() {
+        #expect(LaunchConfiguration.parse([:]).state.display.axesVisible == false)
+        #expect(LaunchConfiguration.parse(["axes": "1"]).state.display.axesVisible)
+        let bad = LaunchConfiguration.parse(["axes": "maybe"])
+        #expect(bad.state.display.axesVisible == false && bad.problems == ["axes=maybe"])
+    }
+
     @Test func parsesViewpoint() {
         #expect(LaunchConfiguration.parse(["viewpoint": "back"]).viewSide == .back)
         #expect(LaunchConfiguration.parse([:]).viewSide == nil)
@@ -96,6 +108,20 @@ struct LaunchOptionsTests {
         #expect(d.effectiveExplode(for: .polytope) == DisplaySettings.perCellMinimumExplode)
         #expect(d.effectiveExplode(for: .surface) == 0)
         #expect(d.effectiveColorSource(for: .surface) == .uniform)
+    }
+
+    @Test func perCellEntitiesOnlyForFewExplodedCells() {
+        // D31: the 120- and 600-cell fall back to sorted; every duoprism (≤ 48 cells) keeps it.
+        let cells = TransparencyMethod.perCellEntities
+        #expect(cells.effective(cellCount: 24, explode: 0.2) == .perCellEntities)
+        #expect(cells.effective(cellCount: 48, explode: 0.2) == .perCellEntities)
+        #expect(cells.effective(cellCount: 120, explode: 0.2) == .sorted)
+        #expect(cells.effective(cellCount: 600, explode: 0.2) == .sorted)
+        #expect(cells.effective(cellCount: 8, explode: 0) == .sorted)
+        let duoprismMax = DuoprismParameters.range.upperBound * 2
+        #expect(duoprismMax <= TransparencyMethod.maxCellsForPerCellEntities)
+        #expect(TransparencyMethod.additive.effective(cellCount: 600, explode: 0.2) == .additive)
+        #expect(TransparencyMethod.sorted.effective(cellCount: 600, explode: 0) == .sorted)
     }
 
     @Test func presetsAreRecognised() {

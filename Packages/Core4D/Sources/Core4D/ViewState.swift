@@ -64,9 +64,16 @@ public enum ColorSource: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Face style: lit (matte or glossy) or unlit (glowing).
+/// Face material: lit by the room (matte, glossy, metal, ceramic, frosted glass) or unlit
+/// (glowing). Metal, ceramic and frosted glass are the experimental looks of D24.
 public enum FaceStyle: String, Codable, CaseIterable, Sendable {
-    case matte, glossy, glowing
+    case matte, glossy, glowing, metal, ceramic
+    case frostedGlass = "frosted"
+}
+
+/// Image pattern on the faces (D24). It replaces the colour source on the faces; edges keep it.
+public enum SurfacePattern: String, Codable, CaseIterable, Sendable {
+    case none, grid, marble, wood
 }
 
 /// Edge colour: the same colour source as the faces, or plain light.
@@ -90,10 +97,17 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
     public var explode: Double
     /// Shadow of the shadow on the floor disc (DESIGN 3.5).
     public var floorShadow: Bool
+    /// The object's four 4D axes, rotated and projected with it (D20).
+    public var axesVisible: Bool
+    /// Image pattern on the faces (D24).
+    public var pattern: SurfacePattern
+    /// Thickness of the faces as a fraction of the fitted object radius, 0 = thin films (D24).
+    public var faceThickness: Double
 
     public init(edgesVisible: Bool, edgeThickness: Double, edgeColor: EdgeColorMode,
                 faceOpacity: Double, colorSource: ColorSource, faceStyle: FaceStyle,
-                explode: Double, floorShadow: Bool) {
+                explode: Double, floorShadow: Bool, axesVisible: Bool = false,
+                pattern: SurfacePattern = .none, faceThickness: Double = 0) {
         self.edgesVisible = edgesVisible
         self.edgeThickness = edgeThickness
         self.edgeColor = edgeColor
@@ -102,7 +116,13 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
         self.faceStyle = faceStyle
         self.explode = explode
         self.floorShadow = floorShadow
+        self.axesVisible = axesVisible
+        self.pattern = pattern
+        self.faceThickness = faceThickness
     }
+
+    /// Range of the face thickness control.
+    public static let faceThicknessRange: ClosedRange<Double> = 0...0.08
 
     /// Range of the explode control.
     public static let explodeRange: ClosedRange<Double> = 0...0.4
@@ -152,6 +172,20 @@ public enum TransparencyMethod: String, Codable, CaseIterable, Sendable {
     case sorted
     /// One entity pair per cell (only with explode > 0); RealityKit sorts the entities.
     case perCellEntities = "cells"
+}
+
+extension TransparencyMethod {
+    /// Per-cell entities cost a pair of entities and meshes per cell, updated every frame: the
+    /// exploded 120-cell ran at 40 Hz and the 600-cell at 5 Hz in the simulator, and the device
+    /// stopped (D31). Above this many cells, sorted is used instead.
+    public static let maxCellsForPerCellEntities = 48
+
+    /// The method actually used for an object with `cellCount` cells: per-cell entities need
+    /// explode > 0 and at most `maxCellsForPerCellEntities` cells, otherwise sorted.
+    public func effective(cellCount: Int, explode: Double) -> TransparencyMethod {
+        guard self == .perCellEntities else { return self }
+        return explode > 0 && cellCount <= Self.maxCellsForPerCellEntities ? self : .sorted
+    }
 }
 
 /// How the floor shadow is made (spike S4, DESIGN 6.5).

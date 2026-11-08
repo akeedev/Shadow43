@@ -130,6 +130,8 @@ later.
 | Edges | visible, thickness, colour (same as faces, or plain light) |
 | Faces | opacity 0–100 %, colour source, style *matte/glossy* or *glowing* |
 | Cells (polytopes only) | explode 0–40 %: each cell shrinks towards its centre |
+| Axes [D20] | on/off: the object's four 4D axes x, y, z, w, rotated and projected with it |
+| Surface [D24, experimental] | material (matte, glossy, glowing, metal, ceramic, frosted glass), image pattern (grid, marble, wood), face thickness |
 
 **Display presets:**
 - *Wireframe:* edges on, faces 0 %
@@ -156,7 +158,8 @@ restructuring.
 
 ### 3.5 Scene
 
-- **v1: volumetric window.** A box in space that can be placed freely and resized.
+- **v1: volumetric window.** A box in space that can be placed freely and resized: 1 m by default,
+  at least 0.5 m; the content follows the size [D19].
 - **Automatic size [D15]:** every object is scaled so that the radius holding 90 % of its projected
   vertices fills 75 % of the box's smallest side. The radius is measured over 32 fixed orientations,
   so it depends only on the object, κ and s and does not pump while the object rotates. The few
@@ -186,13 +189,18 @@ restructuring.
 **Principle: every gesture has an equivalent in the control panel.** This is needed for the
 simulator, for precision and for accessibility.
 
-The control panel sits in an ornament below the window and is at most two levels deep:
+The control panel is a window of its own, opened left of the volume, which the user can move
+[D25]; help and About open in a second window, the *Info* panel. The panel is at most two levels
+deep:
 - **Object:** grouped by kind; p and q for duoprisms
 - **Projection:** 3 presets plus the κ and s sliders
 - **Display:** 4 presets plus the layer controls from 3.4
+- **Surface** [D24]: material, pattern, thickness
 - **Motion:** 4 presets, friction, Stop, Reset, and 6 sliders (speed per plane)
 - **Developer** (collapsed): transparency method (S1), performance overlay (S2), gesture test (S3),
   "Open in room"
+- Next to the tabs [D22]: **?** (help mode: tap any control to have it explained), **About**
+  (version, author, usage guide) and **Reset all** (tap twice)
 
 **Gestures [D3]:** variant A is built first; it uses only standard visionOS gestures:
 
@@ -416,8 +424,8 @@ launch arguments, snapshots and saving scenes later.
 - **Orthonormalise:** Gram–Schmidt on R every frame, against rounding drift.
 - **World frame:** all rotations are multiplied **from the left**.
 - **Drag gesture** by vector Δ (scene coordinates, metres): an impulse `k·Δ` on `ω_xw, ω_yw, ω_zw`,
-  i.e. `R ← G(Δ̂, e_w, k·|Δ|) · R`. The starting value for k is 2π per 0.3 m; the sign is
-  configurable.
+  i.e. `R ← G(Δ̂, e_w, k·|Δ|) · R`. The starting value for k was 2π per 0.3 m; since D26 it is
+  2π per 0.6 m. k and the sign are adjustable in the Developer tab.
   - Throw: Ω_xw, Ω_yw, Ω_zw from the velocity over the last 0.1 s.
   - Catch: Ω = 0 when the gesture begins.
 - **3D rotation** from the two-hand gesture (quaternion q): `R ← diag(M(q), 1) · R`
@@ -586,6 +594,22 @@ checked without clicking. The Developer section offers the same.
 | D16 | 2026-11-08 | Every face triangle has a front copy (normal follows the winding) and a back copy (reversed winding, negated normal); no more "normals turned towards +z" | lit styles are correct from every side without a viewer position; costs twice the face vertices (small next to the tubes) |
 | D17 | 2026-11-08 | The window sorts towards the viewer's side of the volume (`onVolumeViewpointChange`, 4 sides); ARKit head pose only in the immersive space, later | the shared space gives no head pose; four sides are much better than a fixed +z |
 | D18 | 2026-11-08 | Start and reset orientation is a 3D tilt (35° XZ, 25° YZ) instead of the identity | the tesseract starts as the classic cube inside a cube, seen obliquely; axis-aligned views hide edges behind each other |
+| D19 | 2026-11-08 | The window is a 1 m box by default (was 0.8 m) and user-resizable (`windowResizability(.contentMinSize)`, at least 0.5 m); its measured size is the host's bounds, so size fit, floor disc and input target follow | 0.8 m looked small on the device; resizing is the standard visionOS way to make it bigger |
+| D21 | 2026-11-08 | With a size factor above 1 the object rises by `0.5 · fill · side · (factor − 1)`, so the bottom of its fitted radius stays where it is at factor 1 | enlarged objects sank into the floor disc; rotation-independent, so it does not bob. The top is cut by the volume instead; to see more, resize the window (D19) |
+| D22 | 2026-11-08 | Help: a "?" mode in the tab row, in which tapping any control explains it in the help panel instead of using it; explaining an object also shows it in the volume; an About page (version, date, author, usage guide); *Reset all* with a second tap to confirm | explains the app inside the app; the volume is the best picture of an object; two taps instead of a dialog, which might not work in the ornament |
+| D23 | 2026-11-08 | Control panel in an ornament *left* of the volume, help and About in an ornament *right* of it; no second window | a panel below the volume hid the system's window bar and resize corners (on the device and in the simulator); a separate help window made visionOS push the volume back and dim it, and was restored at launch. Ornaments show no 3D content, so the help has no live preview |
+| D24 | 2026-11-08 | Experimental *Surface* tab: three more materials (metal, ceramic, frosted glass) as `PhysicallyBasedMaterial` settings; image patterns (grid, marble, wood, drawn in code) on fixed per-face coordinates (polygon plane in ℝ⁴, 0.25 units per repeat; surfaces: u, v × 8) that *replace* the colour source on the faces; thick faces by moving the front and back copies along their normals (±½ thickness) | the user asked to try all three. RealityKit's standard materials ignore vertex colours (tested), so colour and pattern cannot share a face without a custom shader; a pattern fixed in 4D shows the projection's distortion. Additive transparency washes light patterns out, so a pattern switches it to sorted |
+| D20 | 2026-11-08 | Optional *Axes* layer: the object's four 4D axes (−eᵢ…+eᵢ), rotated and projected like its points, coloured x red, y green, z blue, w yellow, labelled at the + end | shows how the four directions map into the shadow; w starts as a point (it is the projected-away direction) and grows as the object turns into w. Lines stay straight under every κ; the ends are unit vectors, so they meet the object also when spherized |
+| D25 | 2026-11-08 | Controls and Info are separate `Window`s (supersedes D23's ornaments): controls placed `.leading(volume)`, Info as `.utilityPanel`; neither launches nor is restored by the system; the volume opens the controls on appear, opens/closes Info with `showsHelp`, closes both when it closes; a *Controls* ornament on the volume brings closed controls back | the user wants to move the panels; ornaments cannot be moved apart from their window. D23's push-back came from a window at the default spot in front of the volume; these placements avoid it. A second window placed beside the volume opened out of view in the simulator, so Info uses the utility-panel spot. Trade-off: the panels no longer follow when the volume moves |
+| D26 | 2026-11-08 | Drag gain k = 10 rad/m, a full 4D turn per 0.63 m of drag (was 2π per 0.3 m); Developer slider 2…18 rad/m with the default in the middle | the user found the drag rotation too sensitive, tried 2π per 0.6 m and then chose 10 on the device |
+| D27 | 2026-11-08 | The volume requests clipping margins of 0.5 m on every side (`preferredWindowClippingMargins`); the granted margins are logged | the user dislikes the clipping at the volume's walls; margins keep the window but let enlarged or stereographic shadows reach out of it. The system may grant less. A full immersive space would remove all limits but hides other apps' windows; decide after the device check |
+| D28 | 2026-11-08 | Edge and face thickness keep their size in metres when the object is zoomed (Size, pinch) or the window resized: relative to the fitted radius at size factor 1 in a reference box (window 1 m, room 2 m), `SizeFit.fixedLength` | the user: "when I zoom or pinch in, the edges should not scale". Face thickness follows, so edges still cover the rims of thick faces |
+| D29 | 2026-11-08 | Settings are kept between launches: `SavedSettings` (every `ViewState` stage except the orientation, plus the drag mapping) as JSON in the user defaults, saved 0.5 s after the last change and when the volume leaves the foreground; each part decodes on its own and falls back to its default; numbers are clamped. Any recognised launch argument means snapshot mode: start from the defaults, save nothing | the user wants the settings kept. The orientation always starts at the start tilt (D18). Per-part decoding keeps most settings when an update changes one stage's fields |
+| D30 | 2026-11-08 | Room (immersive space): the content is placed once 2 m in front of the viewer's head (`AnchorEntity(.head, trackingMode: .once)`), 15 cm below eye level, in a 2 m box (object ≈ 1.5 m); the volume shows nothing while the room is open; opening logs its result and shows a reason if it fails | the button seemed to do nothing on the device; in the simulator the room opened, but its fixed position (2.8 m from the space origin) was off to the side. A head-tilted start tilts the content [verify on device] |
+| D31 | 2026-11-08 | Per-cell entities (S1) only with explode and at most 48 cells; the 120- and 600-cell use sorted instead | the device crashed on the exploded 600-cell. Simulator with per-cell entities: 600-cell 5 Hz (631 ms CPU per frame), 120-cell 40 Hz (24 ms); with the fallback 120 Hz (1 ms). Additive and the Cells display preset were fine (1.3 ms), fine subdivision heavy but running (504k triangles, 6.7 ms) |
+| D32 | 2026-11-08 | Gesture input target in the window: a sphere filling the volume (radius ½ of its smallest side), centred and never lifted; in the room it follows the object's size and lift. The gestures target only entities with `ShadowInputComponent` | on the device an enlarged object stopped reacting until Reset all: the input sphere was lifted with the object (D21) and left the volume, where touches are not delivered. Targeting by component keeps other touchable entities (the room's disc) from rotating the object |
+| D33 | 2026-11-08 | Room: the floor disc is a handle. It redirects the system's manipulation (`ManipulationComponent.HitTarget`) to the room's root, translation only, so dragging the disc moves object, disc and light through the room; the disc stays visible without the floor shadow | the user asked to move the room object by grabbing the disc; the system's manipulation needs no own gesture maths under the head anchor |
+| D34 | 2026-11-08 | Closing the volume or the controls closes the app: both set `isClosing`, and every window (and the room) then closes itself. The "Controls" button to reopen closed controls is gone | the user wants one close to end the app; a window that is going away may no longer be able to close the others [verify on device] |
 
 ## 8. Findings (continued during implementation)
 
@@ -700,6 +724,77 @@ checked without clicking. The Developer section offers the same.
   - `onVolumeViewpointChange(updateStrategy: .all)` compiles. Whether it fires in a volume, and
     whether `.right` means the viewer stands at +x, can only be checked on the device; the
     Developer section shows the current side, and `-viewpoint` fixes it for snapshots.
+- **2026-11-08, first device run (D19, D20):**
+  - Installing from Xcode with the visionOS 27.0 SDK onto a headset running visionOS 27.2 worked;
+    the first "Preparing device" took several minutes over Wi‑Fi.
+  - The segmented `Picker` for the panel tabs highlighted on look but did not react to taps,
+    while the `SelectButton`s in the same ornament did. Cause unknown (the ornament API is the new
+    3D one with `Alignment3D`). All segmented pickers are now rows of `SelectButton`s. Sliders,
+    toggles and menu pickers were not reachable yet and still need a device check.
+  - The 0.8 m window looked small; now 1 m and resizable (D19). Axes layer added (D20).
+- **2026-11-08, second device round (D21, D22):**
+  - On the device there was no window bar and no resize corner. In the simulator the system's
+    window bar sits right below the volume while the app loads, exactly where the panel's top edge
+    was; once the panel appears, the bar is no longer there, so visionOS presumably moves it below
+    the panel [verify on device]. The panel now starts 90 pt below the volume, which also keeps
+    the volume's bottom corners (resize handles) uncovered.
+  - Tabs and the Axes switch work on the device, so toggles (UIKit-backed) are fine; only the
+    segmented picker failed.
+  - `Info.plist` had a fixed version 1.0; it now takes `MARKETING_VERSION` (0.10.0) and
+    `CURRENT_PROJECT_VERSION`.
+  - Once in the simulator, with `-scale 1.4 -help about`, the volume's object appeared about 3×
+    too large and unclipped. It did not happen again with either argument alone or in a second
+    run. Unexplained; watch for it on the device.
+- **2026-11-08, third device round (D23):**
+  - Still no window bar and no resize corner on the device. Experiment in the simulator: with the
+    panel on the volume's left side, the bar stays visible below the volume after loading; with
+    the panel below, it disappears. So a bottom ornament hides the window controls.
+  - "Sometimes dark and far away" with help open: reproduced in the simulator. visionOS restored
+    the help `Window` at launch, placed it in front of the volume and pushed the volume back and
+    dimmed it. The 3× object above was most likely the same rearrangement. The help is now an
+    ornament, so there is only one window.
+  - A `RealityView` inside an ornament shows nothing, so the live preview is gone; explaining an
+    object shows it in the volume instead.
+  - The volume's size is restored between launches (once 1360 × 1000 × 1360 pt, i.e.
+    1 × 0.74 × 1 m); `defaultSize` only applies to a new window.
+- **2026-11-08, Surface tab (D24):**
+  - A `.color` vertex attribute in the `LowLevelMesh` has no effect on `PhysicallyBasedMaterial`
+    (tested with normals as colours: the faces stayed uniform). Combining a colour source with a
+    pattern would need a `ShaderGraphMaterial`.
+  - Grid on a translucent tesseract: with additive blending the layers add up to white and the
+    grid disappears; sorted shows it on every cell, with visible perspective foreshortening.
+  - Marble reads as stone on the Klein bottle; wood still looks like corrugated cardboard (too
+    much waviness for the repeat size). Metal reflects the room; thick faces turn cells into plates.
+  - Thick faces have open rims; edges at least half the face thickness cover them. The Klein
+    bottle's seam (orientation reversal) shows as a step in thick mode.
+  - Colour × pattern with standard materials, second try: pattern as the ambient-occlusion map of
+    `PhysicallyBasedMaterial`, pattern coordinates in a `.uv1` attribute. The map works (grid lines
+    darken the faces) but reads `uv0`, not `uv1`, so it cannot be combined with the colour lookup
+    in `uv0`. Reverted. Only a `ShaderGraphMaterial` (texture(uv0) × texture(uv1)) can combine both.
+- **2026-11-08, panel windows (D25):**
+  - Device: with the panel on the left the window bar and resize corners work; moving and
+    resizing the volume confirmed by the user.
+  - Simulator: `.leading(volume)` places the controls left of the volume, facing the viewer. A
+    second window placed beside the volume (`.trailing`, or `.leading` when the controls took
+    `.trailing`) was created (scene log) but not visible in the simulator's view. `.utilityPanel`
+    shows the Info panel low in front of the viewer; the volume is not pushed back or dimmed.
+  - Opening both windows in the same `onAppear` works.
+- **2026-11-08, clipping margins (D27):** the simulator granted 47 cm on every side for the
+  requested 50 cm (the first report is 0, before layout). A tesseract at Size 2 is drawn whole,
+  far beyond the 1 m volume; at Size 4 it is cut at the margins.
+- **2026-11-08, room, persistence, 600-cell (D28–D31):**
+  - Room in the simulator: `openImmersiveSpace` returns `opened`; with the head anchor the object
+    stands in front of the viewer with its floor disc, the volume is empty. Why the device button
+    seemed to do nothing is still unknown; the result is now logged and shown.
+  - Per-cell entities cost about 1 ms per cell per frame for the 600-cell (two `LowLevelMesh`
+    updates per cell), so it stalled; see D31 for the numbers.
+  - Saved settings load (a 24-cell at Size 0.8 written to the defaults came back without launch
+    arguments). Saving after a change was not driven in the simulator.
+- **2026-11-08, device round (D32–D34):** room opens and works; settings, 600-cell with explode
+  fine. Exploded 600-cell in Metal is slow on the device but runs at 119 Hz with 1.2 ms CPU in the
+  simulator, so the device's GPU is the limit (many overlapping reflective, translucent layers;
+  explode doubles the faces and makes five times the edges). Not yet addressed; needs the
+  device's overlay numbers.
 
 ## 9. Glossary
 

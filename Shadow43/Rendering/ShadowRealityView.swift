@@ -14,11 +14,24 @@ struct ShadowRealityView: View {
     var body: some View {
         RealityView { content in
             let renderer = ShadowRenderer(model: model, host: host)
-            content.add(renderer.root)
+            switch host.kind {
+            case .window:
+                content.add(renderer.root)
+            case .room:
+                // Placed once in front of the viewer's head, then fixed in the room (D30). If the
+                // head is tilted at that moment, the content is tilted too [verify on device].
+                let anchor = AnchorEntity(.head, trackingMode: .once)
+                anchor.addChild(renderer.root)
+                content.add(anchor)
+            }
             self.renderer = renderer
             subscriptions = ManipulationProbe.subscribe(content, log: model.gestureLog)
+        } update: { _ in
+            // Also runs once the renderer exists, so a resize during setup is not lost (D19).
+            renderer?.setHost(host)
         }
         .modifier(ShadowGestures())
+        .onChange(of: host.bounds) { renderer?.setHost(host) }
         .onDisappear {
             renderer?.tearDown()
             subscriptions.forEach { $0.cancel() }

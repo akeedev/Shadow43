@@ -17,6 +17,7 @@ struct ObjectSection: View {
                         SelectButton(title: id.label, isSelected: model.object == id) {
                             model.object = id
                         }
+                        .helpTarget(.object(id))
                     }
                 }
             }
@@ -29,6 +30,7 @@ struct ObjectSection: View {
                         Text("q = \(model.duoprism.q)")
                     }
                 }
+                .helpTarget(.duoprismParameters)
             }
         }
     }
@@ -47,10 +49,13 @@ struct ProjectionSection: View {
                                  isSelected: ProjectionPreset.matching(model.projection) == preset) {
                         withAnimation(.easeInOut(duration: 0.6)) { model.projection = preset.settings }
                     }
+                    .helpTarget(.projectionPreset(preset))
                 }
             }
             LabeledSlider(title: "Perspective κ", value: $model.projection.kappa, range: 0...1)
+                .helpTarget(.kappa)
             LabeledSlider(title: "Spherize s", value: $model.projection.spherize, range: 0...1)
+                .helpTarget(.spherize)
         }
     }
 }
@@ -69,20 +74,29 @@ struct DisplaySection: View {
                         preset.apply(to: &model.display)
                     }
                     .disabled(preset == .cells && kind != .polytope)
+                    .helpTarget(.displayPreset(preset))
                 }
             }
             HStack(spacing: 16) {
-                Toggle("Edges", isOn: $model.display.edgesVisible).fixedSize()
-                Picker("Edge colour", selection: $model.display.edgeColor) {
-                    ForEach(EdgeColorMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                HStack(spacing: 16) {
+                    Toggle("Edges", isOn: $model.display.edgesVisible).fixedSize()
+                    Picker("Edge colour", selection: $model.display.edgeColor) {
+                        ForEach(EdgeColorMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .fixedSize()
                 }
-                .fixedSize()
+                .helpTarget(.edges)
                 Toggle("Floor shadow", isOn: $model.display.floorShadow).fixedSize()
+                    .helpTarget(.floorShadow)
+                Toggle("Axes", isOn: $model.display.axesVisible).fixedSize()
+                    .helpTarget(.axes)
             }
             LabeledSlider(title: "Edge thickness", value: $model.display.edgeThickness,
                           range: DisplaySettings.thicknessRange, format: "%.3f")
+                .helpTarget(.edgeThickness)
             LabeledSlider(title: "Face opacity", value: $model.display.faceOpacity, range: 0...1,
                           format: "%.0f %%", displayScale: 100)
+                .helpTarget(.faceOpacity)
             HStack(spacing: 16) {
                 Picker("Colour", selection: $model.display.colorSource) {
                     ForEach(ColorSource.allCases.filter { $0.isAvailable(for: kind) }, id: \.self) {
@@ -90,18 +104,47 @@ struct DisplaySection: View {
                     }
                 }
                 .fixedSize()
-                Picker("Style", selection: $model.display.faceStyle) {
-                    ForEach(FaceStyle.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
+                .helpTarget(.colorSource)
+                // Material, pattern and thickness are on the Surface tab (D24).
             }
             LabeledSlider(title: "Explode", value: $model.display.explode,
                           range: DisplaySettings.explodeRange, format: "%.0f %%", displayScale: 100)
                 .disabled(kind != .polytope)
+                .helpTarget(.explode)
             // Factor on top of the automatic size (D15); also the two-hand pinch.
             LabeledSlider(title: "Size", value: $model.scale, range: ViewState.scaleRange, format: "× %.2f")
+                .helpTarget(.size)
         }
+    }
+}
+
+/// Surface: how the faces look – material, image pattern, thickness (D24, experimental).
+struct SurfaceSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        let hasFaces = model.object.kind != .curves
+        VStack(alignment: .leading, spacing: 12) {
+            OptionRow(title: "Material", titleWidth: 110, options: FaceStyle.allCases,
+                      selection: Binding(get: { model.display.faceStyle },
+                                         set: { model.display.faceStyle = $0; model.showFaces() })) { $0.label }
+                .helpTarget(.faceStyle)
+            OptionRow(title: "Pattern", titleWidth: 110, options: SurfacePattern.allCases,
+                      selection: Binding(get: { model.display.pattern },
+                                         set: { model.display.pattern = $0; if $0 != .none { model.showFaces() } })) { $0.label }
+                .helpTarget(.pattern)
+            LabeledSlider(title: "Thickness", value: Binding(
+                get: { model.display.faceThickness },
+                set: { model.display.faceThickness = $0; if $0 > 0 { model.showFaces() } }),
+                          range: DisplaySettings.faceThicknessRange, format: "%.3f")
+                .helpTarget(.faceThickness)
+            Text(hasFaces ? LocalizedStringKey("A pattern replaces the colour on the faces; the edges keep it.")
+                          : LocalizedStringKey("Curves have no faces."))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .disabled(!hasFaces && !model.isHelpMode)
     }
 }
 
@@ -118,16 +161,21 @@ struct MotionSection: View {
                                  isSelected: MotionPreset.matching(model.motion.omega) == preset) {
                         model.motion.omega = preset.omega
                     }
+                    .helpTarget(.motionPreset(preset))
                 }
                 Spacer()
                 Button("Stop", systemImage: "stop.fill") { model.stop() }
+                    .helpTarget(.stop)
                 Button("Reset", systemImage: "arrow.counterclockwise") { model.resetOrientation() }
+                    .helpTarget(.reset)
             }
             LabeledSlider(title: "Friction", value: $model.motion.friction,
                           range: MotionSettings.frictionRange)
+                .helpTarget(.friction)
             ForEach(RotationPlane.allCases, id: \.self) { plane in
                 LabeledSlider(title: plane.label, value: $model.motion.omega[plane],
                               range: MotionSettings.speedRange, format: "%.2f rad/s")
+                    .helpTarget(.planeSpeed)
             }
         }
     }
@@ -142,36 +190,33 @@ struct DeveloperSection: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Text("Transparency (S1)").frame(width: 190, alignment: .leading)
-                Picker("Transparency (S1)", selection: $model.developer.transparency) {
-                    ForEach(TransparencyMethod.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
-            HStack(spacing: 12) {
-                Text("Floor shadow (S4)").frame(width: 190, alignment: .leading)
-                Picker("Floor shadow (S4)", selection: $model.developer.floorShadowMethod) {
-                    ForEach(FloorShadowMethod.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-            }
+            OptionRow(title: "Transparency (S1)", titleWidth: 190, options: TransparencyMethod.allCases,
+                      selection: $model.developer.transparency) { $0.label }
+                .helpTarget(.transparency)
+            OptionRow(title: "Floor shadow (S4)", titleWidth: 190, options: FloorShadowMethod.allCases,
+                      selection: $model.developer.floorShadowMethod) { $0.label }
+                .helpTarget(.floorShadowMethod)
             HStack(spacing: 24) {
                 LabeledSlider(title: "Drag k (rad/m)", value: $model.gestureMapping.radiansPerMetre,
-                              range: 5...60, format: "%.1f")
+                              range: GestureMapping.radiansPerMetreRange, format: "%.1f")
                 Toggle("Invert drag", isOn: Binding(
                     get: { model.gestureMapping.sign < 0 },
                     set: { model.gestureMapping.sign = $0 ? -1 : 1 }))
                     .fixedSize()
             }
+            .helpTarget(.dragMapping)
             HStack(spacing: 24) {
                 Toggle("Performance overlay (S2)", isOn: $model.developer.showsPerformanceOverlay)
                     .fixedSize()
+                    .helpTarget(.performanceOverlay)
                 Toggle("Gesture test (S3)", isOn: $model.developer.showsGestureTest).fixedSize()
+                    .helpTarget(.gestureTest)
             }
             HStack(spacing: 24) {
                 Toggle("Freeze time", isOn: $model.developer.freezesTime).fixedSize()
+                    .helpTarget(.freezeTime)
                 Toggle("Fine subdivision (S2 stress)", isOn: $model.developer.forcesFineSubdivision).fixedSize()
+                    .helpTarget(.fineSubdivision)
             }
             HStack(spacing: 4) {
                 // Sort direction of the "sorted" method (D17).
@@ -180,22 +225,45 @@ struct DeveloperSection: View {
                 if model.viewSideOverride != nil { Text("(launch argument)") }
             }
             .foregroundStyle(.secondary)
+            .helpTarget(.viewerSide)
             Button(model.isRoomOpen ? "Close room" : "Open in room (experimental)",
                    systemImage: "cube.transparent") {
-                Task {
-                    if model.isRoomOpen {
-                        await dismissImmersiveSpace()
-                        model.isRoomOpen = false
-                    } else if case .opened = await openImmersiveSpace(id: RoomView.spaceID) {
-                        model.isRoomOpen = true
-                    }
-                }
+                Task { await toggleRoom() }
+            }
+            .helpTarget(.room)
+            if let roomProblem {
+                Text(roomProblem).font(.footnote).foregroundStyle(.red)
             }
             if !model.launchProblems.isEmpty {
                 Text("Ignored launch arguments: \(model.launchProblems.joined(separator: ", "))")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    /// Why the room did not open, shown below the button; on the device the button seemed to do
+    /// nothing, so every outcome is logged and shown.
+    @State private var roomProblem: LocalizedStringKey?
+
+    private func toggleRoom() async {
+        if model.isRoomOpen {
+            await dismissImmersiveSpace()
+            model.isRoomOpen = false
+            return
+        }
+        let result = await openImmersiveSpace(id: RoomView.spaceID)
+        ShadowRenderer.logger.notice("Open in room: \(String(describing: result), privacy: .public)")
+        switch result {
+        case .opened:
+            model.isRoomOpen = true
+            roomProblem = nil
+        case .userCancelled:
+            roomProblem = "The room was not opened: cancelled."
+        case .error:
+            roomProblem = "The room could not be opened (visionOS reported an error)."
+        @unknown default:
+            roomProblem = "The room could not be opened."
         }
     }
 }
@@ -215,6 +283,27 @@ struct SelectButton: View {
         }
         .buttonStyle(.bordered)
         .tint(isSelected ? .accentColor : nil)
+    }
+}
+
+/// A title and one `SelectButton` per option; replaces segmented pickers, which did not react to
+/// taps in the ornament on the device (DESIGN §8).
+struct OptionRow<Option: Hashable>: View {
+    let title: LocalizedStringKey
+    var titleWidth: CGFloat?
+    let options: [Option]
+    @Binding var selection: Option
+    let label: (Option) -> LocalizedStringKey
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title).frame(width: titleWidth, alignment: .leading)
+            ForEach(options, id: \.self) { option in
+                SelectButton(title: label(option), isSelected: selection == option) {
+                    selection = option
+                }
+            }
+        }
     }
 }
 

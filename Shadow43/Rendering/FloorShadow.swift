@@ -18,17 +18,18 @@ final class FloorShadow {
     private var casters: [Entity] = []
     private var method: FloorShadowMethod?
     private var enabled: Bool?
+    /// The disc is the room's handle (D33) and stays visible even without the floor shadow.
+    private var isHandle = false
 
     init(host: SceneHost) {
         root.name = "FloorShadow"
-        let radius = 0.3 * min(host.bounds.x, host.bounds.z)
         var material = PhysicallyBasedMaterial()
         material.baseColor = .init(tint: UIColor(white: 0.9, alpha: 1))
         material.roughness = .init(floatLiteral: 1)
         material.metallic = .init(floatLiteral: 0)
-        disc = ModelEntity(mesh: .generateCylinder(height: 0.004, radius: radius), materials: [material])
+        // Unit radius, scaled to the box in `layout(for:)`.
+        disc = ModelEntity(mesh: .generateCylinder(height: 0.004, radius: 1), materials: [material])
         disc.name = "FloorDisc"
-        disc.position = [0, host.floorY, 0]
         disc.components.set(DynamicLightShadowComponent(castsShadow: false))
         root.addChild(disc)
 
@@ -38,8 +39,27 @@ final class FloorShadow {
         light.components.set(DirectionalLightComponent.Shadow(maximumDistance: 4, depthBias: 1))
         // A directional light shines along its −z axis; turn −z to −y (straight down).
         light.orientation = simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
-        light.position = [0, host.bounds.y * 0.48, 0]
         root.addChild(light)
+        layout(for: host)
+    }
+
+    /// Sizes and places disc and light for the host's box (also after a resize, D19).
+    func layout(for host: SceneHost) {
+        let radius = 0.3 * min(host.bounds.x, host.bounds.z)
+        disc.scale = [radius, 1, radius]
+        disc.position = [0, host.floorY, 0]
+        light.position = [0, host.bounds.y * 0.48, 0]
+    }
+
+    /// Makes the disc a handle: grabbing it moves `target`, which needs a `ManipulationComponent`
+    /// (D33). The collision box is in the disc's unit-radius space and scales with it.
+    func makeHandle(moving target: Entity) {
+        isHandle = true
+        disc.components.set(CollisionComponent(shapes: [.generateBox(width: 2, height: 0.06, depth: 2)]))
+        disc.components.set(InputTargetComponent())
+        disc.components.set(HoverEffectComponent())
+        disc.components.set(ManipulationComponent.HitTarget(redirectedEntity: target))
+        enabled = nil
     }
 
     /// Registers entities that cast the shadow (the content's mesh entities).
@@ -52,7 +72,7 @@ final class FloorShadow {
         guard enabled != self.enabled || newMethod != method else { return }
         self.enabled = enabled
         method = newMethod
-        root.isEnabled = enabled
+        root.isEnabled = enabled || isHandle
         let useLight = enabled && newMethod == .directionalLight
         let useGrounding = enabled && newMethod == .grounding
         light.isEnabled = useLight

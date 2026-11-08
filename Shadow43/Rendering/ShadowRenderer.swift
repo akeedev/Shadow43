@@ -14,15 +14,21 @@ final class ShadowRenderer {
     static let logger = Logger(subsystem: "Shadow43", category: "Rendering")
 
     let model: AppModel
-    let host: SceneHost
-    /// Positioned by the host; holds the floor and light (metres) and the scaled content.
+    /// The bounds follow the window's size (D19); everything else stays fixed.
+    private(set) var host: SceneHost
+    /// Positioned by the host; carries the `ShadowComponent`, so it stays enabled.
     let root = Entity()
+    /// Everything visible and touchable: the floor and light (metres) and the scaled content.
+    /// The window disables it while the room is open (D30).
+    let stage = Entity()
     /// Object units; scaled to fill the host box (`SizeFit`, D15) times `model.scale`.
     let content = Entity()
     let facesEntity = ModelEntity()
     let edgesEntity = ModelEntity()
     let floor: FloorShadow
     let cells: CellEntities
+    /// The object's 4D axes in metres (D20).
+    let axes = AxisEntities()
     /// Static collision sphere for gestures; the mesh changes every frame (DESIGN 6.5).
     let inputTarget = Entity()
     /// Variant C probe for the gesture test (S3).
@@ -46,24 +52,28 @@ final class ShadowRenderer {
         self.host = host
         floor = FloorShadow(host: host)
         cells = CellEntities()
-        probe = ManipulationProbe.make(at: host.bounds * SIMD3(0.4, -0.38, 0.4))
+        probe = ManipulationProbe.make(at: Self.probePosition(host))
         root.name = "ShadowRoot"
         root.position = host.contentOffset
         content.name = "Content"
         facesEntity.name = "Faces"
         edgesEntity.name = "Edges"
-        root.addChild(content)
+        stage.name = "Stage"
+        root.addChild(stage)
+        stage.addChild(content)
         content.addChild(facesEntity)
         content.addChild(edgesEntity)
         content.addChild(cells.container)
-        root.addChild(floor.root)
+        stage.addChild(floor.root)
+        stage.addChild(axes.root)
         inputTarget.name = "InputTarget"
         inputTarget.components.set(InputTargetComponent())
-        let targetRadius = 0.375 * min(host.bounds.x, min(host.bounds.y, host.bounds.z))
-        inputTarget.components.set(CollisionComponent(shapes: [.generateSphere(radius: targetRadius)], isStatic: true))
-        root.addChild(inputTarget)
+        inputTarget.components.set(ShadowInputComponent())
+        updateInputTarget(lift: .zero)
+        stage.addChild(inputTarget)
+        if host.kind == .room { makeMovable() }
         probe.isEnabled = false
-        root.addChild(probe)
+        stage.addChild(probe)
         floor.attachCaster(facesEntity)
         floor.attachCaster(edgesEntity)
         floor.attachCaster(cells.container)
@@ -79,19 +89,87 @@ final class ShadowRenderer {
         root.components.remove(ShadowComponent.self)
     }
 
+    /// The host's box changed, e.g. the window was resized (D19): the size fit, floor, light and
+    /// input target follow.
+    func setHost(_ newHost: SceneHost) {
+        guard newHost.bounds != host.bounds || newHost.contentOffset != host.contentOffset else { return }
+        host.bounds = newHost.bounds
+        host.contentOffset = newHost.contentOffset
+        root.position = host.contentOffset
+        floor.layout(for: host)
+        probe.position = Self.probePosition(host)
+        updateInputTarget(lift: inputTarget.position)
+        lastParameters = nil
+    }
+
+    /// Radius of the input target's collision sphere, to regenerate it only when it changes.
+    private var inputTargetRadius: Float = 0
+
+    /// Where the gestures can grab the object (D32). In the window: a sphere filling the volume,
+    /// centred and never lifted. It used to be lifted with an enlarged object (D21) and then left
+    /// the volume, where touches are not delivered, so the object stopped reacting. In the room
+    /// it follows the object's size and lift.
+    private func updateInputTarget(lift: SIMD3<Float>) {
+        let radius: Float, position: SIMD3<Float>
+        switch host.kind {
+        case .window:
+            radius = 0.5 * host.smallestSide
+            position = .zero
+        case .room:
+            radius = 0.375 * host.smallestSide * Float(model.scale)
+            position = lift
+        }
+        if inputTarget.position != position { inputTarget.position = position }
+        guard radius != inputTargetRadius else { return }
+        inputTargetRadius = radius
+        inputTarget.components.set(CollisionComponent(shapes: [.generateSphere(radius: radius)], isStatic: true))
+    }
+
+    /// Room only (D33): grabbing the floor disc moves the whole object (this root) through the
+    /// room; the system's manipulation does the work, translation only.
+    private func makeMovable() {
+        var manipulation = ManipulationComponent()
+        manipulation.releaseBehavior = .stay
+        manipulation.dynamics.translationBehavior = .unconstrained
+        manipulation.dynamics.primaryRotationBehavior = .none
+        manipulation.dynamics.secondaryRotationBehavior = .none
+        manipulation.dynamics.scalingBehavior = .none
+        manipulation.dynamics.inertia = .zero
+        root.components.set(InputTargetComponent())
+        root.components.set(manipulation)
+        floor.makeHandle(moving: root)
+    }
+
+    private static func probePosition(_ host: SceneHost) -> SIMD3<Float> {
+        host.bounds * SIMD3(0.4, -0.38, 0.4)
+    }
+
     // MARK: Frame
 
     func update(deltaTime: TimeInterval) {
         let start = CACurrentMediaTime()
         model.tick(now: ProcessInfo.processInfo.systemUptime)
+        // While the room is open the window stays empty, so the object is not seen twice (D30).
+        let shown = !(host.kind == .window && model.isRoomOpen)
+        if stage.isEnabled != shown { stage.isEnabled = shown }
+        guard shown else { return }
         let rebuilt = syncStructure()
         let layers = currentLayers()
         if layers != lastLayersApplied || rebuilt {
             applyLayers(layers)
             lastLayersApplied = layers
         }
-        content.scale = SIMD3(repeating: metresPerUnit())
+        let scale = metresPerUnit()
+        content.scale = SIMD3(repeating: scale)
+        // Enlarged objects rise instead of sinking into the floor disc (D21).
+        let lift = SIMD3<Float>(0, Float(SizeFit.lift(boxSide: Double(host.smallestSide), sizeFactor: model.scale)), 0)
+        if content.position != lift {
+            content.position = lift
+            axes.root.position = lift
+        }
+        updateInputTarget(lift: lift)
         floor.update(enabled: model.display.floorShadow, method: model.developer.floorShadowMethod)
+        updateAxes(metresPerUnit: scale)
         if probe.isEnabled != model.developer.showsGestureTest { probe.isEnabled = model.developer.showsGestureTest }
 
         let p = frameParameters(layers)
@@ -126,6 +204,18 @@ final class ShadowRenderer {
     private func metresPerUnit() -> Float {
         Float(SizeFit.metresPerUnit(fittedRadius: fittedRadius(), boxSide: Double(host.smallestSide),
                                     sizeFactor: model.scale))
+    }
+
+    // MARK: Axes (D20)
+
+    private func updateAxes(metresPerUnit: Float) {
+        let visible = model.display.axesVisible
+        if axes.root.isEnabled != visible { axes.root.isEnabled = visible }
+        guard visible else { return }
+        let box = Double(max(host.bounds.x, max(host.bounds.y, host.bounds.z)))
+        axes.update(AxisCross.axes(rotation: model.orientation, kappa: model.projection.kappa,
+                                   maxRadius: 4 * box / Double(metresPerUnit)),
+                    metresPerUnit: metresPerUnit)
     }
 
     // MARK: Structure (object, explode, subdivision)
@@ -172,9 +262,14 @@ final class ShadowRenderer {
         let hasFaces = kind != .curves
         let facesVisible = hasFaces && d.faceOpacity > 0.001
         let translucent = d.faceOpacity < 0.999
-        var method = model.developer.transparency
-        if method == .perCellEntities && model.effectiveExplode == 0 { method = .sorted }
+        // Per-cell entities only with explode and few cells (D31).
+        var method = model.developer.transparency.effective(cellCount: complex?.value.cells.count ?? 0,
+                                                            explode: model.effectiveExplode)
+        // Additive blending adds the light pattern layers up to white; sorted keeps them (D24).
+        if method == .additive && d.pattern != .none { method = .sorted }
         let usesCells = facesVisible && translucent && method == .perCellEntities
+        // A pattern replaces the colour source on the faces; edges keep it (D24).
+        let pattern = Self.texture(for: d.pattern)
         return LayerKey(
             facesVisible: facesVisible,
             edgesVisible: d.edgesVisible || !hasFaces,
@@ -183,8 +278,8 @@ final class ShadowRenderer {
             translucent: translucent,
             method: method,
             usesCellEntities: usesCells,
-            faceTexture: Self.texture(for: source),
-            faceMode: Self.mode(for: source),
+            faceTexture: pattern ?? Self.texture(for: source),
+            faceMode: pattern != nil ? .pattern : Self.mode(for: source),
             edgeTexture: d.edgeColor == .light ? .light : Self.texture(for: source),
             edgeMode: d.edgeColor == .light ? .uniform : Self.mode(for: source)
         )
@@ -215,19 +310,25 @@ final class ShadowRenderer {
     private func frameParameters(_ l: LayerKey) -> FrameParameters {
         let box = max(host.bounds.x, max(host.bounds.y, host.bounds.z))
         let viewDirection: SIMD3<Float> = host.tracksVolumeViewpoint ? model.viewSide.direction : [0, 0, 1]
+        // Edge and face thickness keep their size in metres when the object is zoomed (D28).
+        let mpu = Double(metresPerUnit())
+        let reference = Double(host.thicknessReferenceSide)
+        let edgeRadius = SizeFit.fixedLength(model.display.edgeThickness, referenceSide: reference, metresPerUnit: mpu)
+        let faceThickness = SizeFit.fixedLength(model.display.faceThickness, referenceSide: reference, metresPerUnit: mpu)
         return FrameParameters(
             rotation: Rotation4D.float(model.orientation),
             kappa: Float(model.projection.kappa),
             spherize: Float(model.projection.spherize),
             faceColors: l.faceMode,
             edgeColors: l.edgeMode,
-            // Relative to the fitted radius, so tubes keep their size in metres (D15).
-            edgeRadius: Float(model.display.edgeThickness * fittedRadius()),
+            edgeRadius: Float(edgeRadius),
             sortFaces: l.facesVisible && l.translucent && l.method == .sorted,
             orientCellFaces: l.usesCellEntities,
             viewDirection: viewDirection,
             epsilon: Float(Projection4D.defaultEpsilon),
-            maxRadius: 4 * box / metresPerUnit()
+            maxRadius: 4 * box / metresPerUnit(),
+            // Thick faces (D24): half the thickness on each side.
+            faceOffset: Float(0.5 * faceThickness)
         )
     }
 
@@ -255,6 +356,16 @@ final class ShadowRenderer {
         case .perCell: .palette
         case .surfaceParameter: .checkerboard
         case .perFibre: .hue
+        }
+    }
+
+    /// The face texture of a pattern, or nil for none (D24).
+    static func texture(for pattern: SurfacePattern) -> ColorTexture? {
+        switch pattern {
+        case .none: nil
+        case .grid: .grid
+        case .marble: .marble
+        case .wood: .wood
         }
     }
 

@@ -83,6 +83,20 @@ extension FaceStyle {
         case .matte: "Matte"
         case .glossy: "Glossy"
         case .glowing: "Glowing"
+        case .metal: "Metal"
+        case .ceramic: "Ceramic"
+        case .frostedGlass: "Frosted glass"
+        }
+    }
+}
+
+extension SurfacePattern {
+    var label: LocalizedStringKey {
+        switch self {
+        case .none: "None"
+        case .grid: "Grid"
+        case .marble: "Marble"
+        case .wood: "Wood"
         }
     }
 }
@@ -145,6 +159,7 @@ extension PanelTab {
         case .object: "Object"
         case .projection: "Projection"
         case .display: "Display"
+        case .surface: "Surface"
         case .motion: "Motion"
         case .developer: "Developer"
         }

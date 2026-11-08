@@ -83,7 +83,7 @@ final class MaterialFactory {
             m.faceCulling = culling
             (m.blending, m.writesDepth) = blendSettings(key)
             return m
-        case .matte, .glossy:
+        case .matte, .glossy, .metal, .ceramic, .frostedGlass:
             var m: PhysicallyBasedMaterial
             if key.blend == .additive, let program = litAdditive {
                 m = PhysicallyBasedMaterial(program: program)
@@ -91,12 +91,29 @@ final class MaterialFactory {
                 m = PhysicallyBasedMaterial()
             }
             m.baseColor = PhysicallyBasedMaterial.BaseColor(tint: .white, texture: texture)
-            m.roughness = .init(floatLiteral: key.style == .glossy ? 0.15 : 0.75)
-            m.metallic = .init(floatLiteral: 0)
-            if key.style == .glossy { m.clearcoat = .init(floatLiteral: 1) }
+            let look = Self.look(key.style)
+            m.roughness = .init(floatLiteral: look.roughness)
+            m.metallic = .init(floatLiteral: look.metallic)
+            if look.clearcoat > 0 {
+                m.clearcoat = .init(floatLiteral: look.clearcoat)
+                m.clearcoatRoughness = .init(floatLiteral: look.clearcoatRoughness)
+            }
             m.faceCulling = culling
             (m.blending, m.writesDepth) = blendSettings(key)
             return m
+        }
+    }
+
+    /// Surface parameters of the lit styles. Metal, ceramic and frosted glass are the
+    /// experimental looks of D24; the room's lighting gives the reflections.
+    private static func look(_ style: FaceStyle) -> (roughness: Float, metallic: Float, clearcoat: Float,
+                                                      clearcoatRoughness: Float) {
+        switch style {
+        case .glossy: (0.15, 0, 1, 0)
+        case .metal: (0.22, 1, 0, 0)
+        case .ceramic: (0.35, 0, 1, 0.05)
+        case .frostedGlass: (0.6, 0, 0.5, 0.3)
+        case .matte, .glowing: (0.75, 0, 0, 0)
         }
     }
 
