@@ -22,7 +22,7 @@ This file serves two readers:
      access.
 2. **Smoke test.** About 1 minute; it checks that the night session will not get stuck:
    ```sh
-   claude -p "Run each step, report OK or DENIED with one line of output, never work around a denial: 1) xcodebuild -version 2) swift --version 3) xcrun simctl list runtimes 4) xcodegen --version 5) Write the file smoke.txt with content hi, then Edit it to hello 6) Read the first 3 lines of /Applications/Xcode.app/Contents/Developer/Platforms/XROS.platform/Developer/SDKs/XROS.sdk/System/Library/Frameworks/RealityFoundation.framework/Modules/RealityFoundation.swiftmodule/arm64e-apple-xros.swiftinterface 7) git commit --dry-run -m test 8) speak test 9) rm smoke.txt" --permission-mode dontAsk --permission-prompts none
+   cd ~/Develop/visionpro_shadow43 && claude -p "Run each step, report OK or DENIED with one line of output, never work around a denial: 1) xcodebuild -version 2) swift --version 3) xcrun simctl list runtimes 4) xcodegen --version 5) Write the file smoke.txt with content hi, then Edit it to hello 6) Read the first 3 lines of /Applications/Xcode.app/Contents/Developer/Platforms/XROS.platform/Developer/SDKs/XROS.sdk/System/Library/Frameworks/RealityFoundation.framework/Modules/RealityFoundation.swiftmodule/arm64e-apple-xros.swiftinterface 7) git commit --dry-run -m test 8) speak test 9) rm smoke.txt" --permission-mode dontAsk --permission-prompts none
    ```
    Expected result: steps 1–6 and 9 are OK, steps 7 and 8 are DENIED. If anything else differs,
    do not start the run; the cause is almost certainly a rule in `.claude/settings.json`.

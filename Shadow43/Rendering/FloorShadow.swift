@@ -1,0 +1,72 @@
+// Copyright 2026 Andreas Keese. Licensed under the Apache License, Version 2.0.
+
+import Core4D
+import Foundation
+import RealityKit
+import UIKit
+
+/// The shadow of the shadow (DESIGN 3.5, spike S4): a light from above casts the 3D projection's
+/// shadow onto a subtle floor disc. Floor and light live in metres, outside the scaled content.
+///
+/// Two methods, switchable in the Developer section: a `DirectionalLightComponent` with a shadow
+/// (the design's choice), or `GroundingShadowComponent` (the fallback).
+@MainActor
+final class FloorShadow {
+    let root = Entity()
+    let disc: ModelEntity
+    let light = Entity()
+    private var casters: [Entity] = []
+    private var method: FloorShadowMethod?
+    private var enabled: Bool?
+
+    init(host: SceneHost) {
+        root.name = "FloorShadow"
+        let radius = 0.3 * min(host.bounds.x, host.bounds.z)
+        var material = PhysicallyBasedMaterial()
+        material.baseColor = .init(tint: UIColor(white: 0.9, alpha: 1))
+        material.roughness = .init(floatLiteral: 1)
+        material.metallic = .init(floatLiteral: 0)
+        disc = ModelEntity(mesh: .generateCylinder(height: 0.004, radius: radius), materials: [material])
+        disc.name = "FloorDisc"
+        disc.position = [0, host.floorY, 0]
+        disc.components.set(DynamicLightShadowComponent(castsShadow: false))
+        root.addChild(disc)
+
+        light.name = "FloorLight"
+        light.components.set(DirectionalLightComponent(color: .white, intensity: 3000))
+        // (A `.fixed` orthographic shadow camera showed no shadow at all in the simulator.)
+        light.components.set(DirectionalLightComponent.Shadow(maximumDistance: 4, depthBias: 1))
+        // A directional light shines along its −z axis; turn −z to −y (straight down).
+        light.orientation = simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
+        light.position = [0, host.bounds.y * 0.48, 0]
+        root.addChild(light)
+    }
+
+    /// Registers entities that cast the shadow (the content's mesh entities).
+    func attachCaster(_ entity: Entity) {
+        casters.append(entity)
+        method = nil
+    }
+
+    func update(enabled: Bool, method newMethod: FloorShadowMethod) {
+        guard enabled != self.enabled || newMethod != method else { return }
+        self.enabled = enabled
+        method = newMethod
+        root.isEnabled = enabled
+        let useLight = enabled && newMethod == .directionalLight
+        let useGrounding = enabled && newMethod == .grounding
+        light.isEnabled = useLight
+        for caster in casters { setCasting(caster, light: useLight, grounding: useGrounding) }
+        disc.components.set(GroundingShadowComponent(castsShadow: false, receivesShadow: useGrounding))
+    }
+
+    private func setCasting(_ entity: Entity, light: Bool, grounding: Bool) {
+        entity.components.set(DynamicLightShadowComponent(castsShadow: light))
+        if grounding {
+            entity.components.set(GroundingShadowComponent(castsShadow: true))
+        } else {
+            entity.components.remove(GroundingShadowComponent.self)
+        }
+        for child in entity.children { setCasting(child, light: light, grounding: grounding) }
+    }
+}

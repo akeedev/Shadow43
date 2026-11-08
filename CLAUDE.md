@@ -39,6 +39,9 @@ These are in addition to `~/Develop/CLAUDE.md` and `AGENTS_general.md`.
 - Performance: implement on the CPU with SIMD first and measure. Move to Metal compute only if the
   budget in §6.3 is exceeded, and ask first.
 - `App.body` must be declared as `some SwiftUI.Scene`, because RealityKit also defines `Scene`.
+- This project is small and new, and the jbcontext MCP server is currently not connecting. For code
+  discovery, use direct reads and grep; the jbcontext/context-explorer step from
+  `~/Develop/CLAUDE.md` is not needed here.
 
 ## Build, test, run
 `.claude/settings.json` sets `DEVELOPER_DIR`. It also lets `swift`, `xcodebuild`, `xcodegen` and

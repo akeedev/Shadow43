@@ -1,0 +1,5 @@
+// Shared build settings for Shadow43 (committed).
+// The placeholder bundle ID below is overridden by the git-ignored local file, which holds
+// DEVELOPMENT_TEAM and the real PRODUCT_BUNDLE_IDENTIFIER (see README).
+PRODUCT_BUNDLE_IDENTIFIER = com.example.shadow43
+#include? "Signing.local.xcconfig"

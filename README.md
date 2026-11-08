@@ -24,6 +24,17 @@ DEVELOPMENT_TEAM = <your team ID>
 PRODUCT_BUNDLE_IDENTIFIER = <your unique bundle ID>
 ```
 
+## Snapshot mode
+
+Every visual state can be set with launch arguments, for example in the simulator:
+
+```sh
+xcrun simctl launch booted com.example.shadow43 -object 120-cell -projection stereographic -display glass -time 1.5
+```
+
+`-time` freezes time after integrating the motion for that many seconds. All keys are listed in
+`Packages/Core4D/Sources/Core4D/LaunchOptions.swift`.
+
 ## License
 
 Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). © 2026 Andreas Keese.

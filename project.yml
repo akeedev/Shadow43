@@ -1,0 +1,36 @@
+# XcodeGen spec for Shadow43. Generate the project with `xcodegen generate`.
+# Shadow43.xcodeproj is generated and git-ignored; edit this file instead.
+name: Shadow43
+options:
+  deploymentTarget:
+    visionOS: "27.0"
+packages:
+  Core4D:
+    path: Packages/Core4D
+targets:
+  Shadow43:
+    type: application
+    platform: visionOS
+    sources: [Shadow43]
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    dependencies:
+      - package: Core4D
+    info:
+      path: Shadow43/Info.plist
+      properties:
+        CFBundleDisplayName: Shadow43
+        CFBundleDevelopmentRegion: en
+        UIApplicationSceneManifest:
+          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LOCALIZATION_PREFERS_STRING_CATALOGS: YES

@@ -5,7 +5,6 @@
   "permissions": {
     "allow": [
       "Edit(./**)",
-      "Write(./**)",
       "Read(//Applications/Xcode.app/**)",
       "Bash(swift *)",
       "Bash(xcodebuild *)",

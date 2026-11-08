@@ -563,6 +563,10 @@ checked without clicking. The Developer section offers the same.
 | D8 | 2026-11-08 | Everything in English, including UI, code and docs; open source under Apache 2.0, © Andreas Keese; git local first, moved to GitHub later | |
 | D9 | 2026-11-08 | Projection as two controls κ, s with presets | one formula covers orthographic, perspective and stereographic, and allows morphing |
 | D10 | 2026-11-08 | Display as layers with presets; volumes are cells with explode; colour per cell forces a minimum explode | fewer modes, orthogonal controls |
+| D11 | 2026-11-08 | Core4D is compiled with `-O` in every configuration (`unsafeFlags` in `Package.swift`) | the per-frame pipeline is ~40× slower unoptimised; Xcode's default Run (Debug) would otherwise miss 90 Hz on the device |
+| D12 | 2026-11-08 | Double-sided faces are emitted in both windings with back-face culling | same look as `faceCulling = .none`; keeps lit and shadow paths uniform (night run, S4) |
+| D13 | 2026-11-08 | Leaving the *Cells* display preset resets explode to 0 and the colour source to *by W* | otherwise every other preset would still look exploded; easy to change in `DisplayPreset.apply` |
+| D14 | 2026-11-08 | Subdivision only when s > 0; levels by size (n = 8/6/5, m = 3/2/2) | the projection maps lines to lines; large polytopes stay within budget |
 
 ## 8. Findings (continued during implementation)
 
@@ -596,6 +600,70 @@ checked without clicking. The Developer section offers the same.
   unreachable. They must run outside the sandbox (`sandbox.excludedCommands` in
   `.claude/settings.json`). Commands containing `cd`, pipes, redirects or `$(...)` stay sandboxed
   even then.
+- **2026-11-08, night run (M0–M2):**
+  - XcodeGen enumerates source files at generate time: after adding a Swift file, run
+    `xcodegen generate` again, otherwise the build fails with "cannot find … in scope".
+  - `UnlitMaterial.Blending` and `PhysicallyBasedMaterial.Blending` are the same type.
+    `UnlitMaterial.Program(descriptor:)` / `PhysicallyBasedMaterial.Program(descriptor:)` are
+    `async`; the `.add` programs are created once at start-up, and until they are ready the
+    additive method falls back to alpha blending.
+  - simd has no `simd_float4x4(simd_double4x4)` initializer; Core4D has `Rotation4D.float(_:)`.
+  - `LowLevelMesh` with one interleaved buffer (position @0, normal @16, uv0 @32, stride 48,
+    `SIMD3<Float>` padding) works; parts are replaced every frame with the new index count and
+    bounds.
+  - The projection maps lines to lines, so subdivision is only needed when s > 0
+    (`TessellationOptions.recommended`); at s = 0 every edge is one segment and every polygon a
+    plain fan.
+  - Faces are double-sided; normals are turned towards the viewer (+z of the box) per polygon
+    (polytopes) or per vertex (surfaces), so lit styles look right from the front.
+  - Tubes have flat caps (fans over the end rings) so their open ends never show.
+  - Simulator: the app launches in about 3–5 s; a screenshot taken right after `simctl launch`
+    shows the system's loading placeholder. The simulator renders at 120 Hz; the debug build
+    needs about 1.5 ms CPU per frame for the 24-cell (2,200 triangles).
+  - In the simulator's living room, a 0.8 m volume with 0.2 m per object unit still looks small;
+    snapshots use `-scale 1.3…1.6`.
+- **2026-11-08, night run (M3–M5):**
+  - **Performance:** unoptimised Swift is about 40× slower for the per-frame pipeline: the
+    stereographic 120-cell (81k triangles) took 34.7 ms CPU per frame in a Debug build and 0.8 ms
+    in Release (simulator on the Mac). Core4D is therefore compiled with `-O` even in Debug
+    (`unsafeFlags` in `Package.swift`; accepted for a local package). The 600-cell then needs
+    1.4 ms in a Debug build of the app.
+  - **S1 transparency:** all three methods work in the simulator. *Additive* gives the glowing
+    glass look; *sorted* (alpha, matte) gives clean glass with no visible sorting errors for the
+    24-cell; *per-cell entities* (one `ModelSortGroup` per cell, back faces order 0, front faces
+    order 1, cell entities positioned at their centroids) layers exploded cells correctly.
+    Flicker while walking around can only be judged on the device.
+  - **S4 floor shadow:** `DirectionalLightComponent` + `Shadow` casts clear shadows of the edge
+    tubes onto the disc. Face shadows appeared only in some runs (Cells preset, uniform 16-cell),
+    not for the solid 24-cell, also not after drawing faces with both windings and back-face
+    culling. A `.fixed` orthographic shadow projection showed no shadow at all. With
+    `GroundingShadowComponent` the disc only got darker overall. Default stays the directional
+    light; the Developer section switches methods [verify on device].
+  - Faces are now drawn as both windings with back-face culling (visually identical to
+    `faceCulling = .none`); this was a hypothesis for S4 and is harmless.
+  - **S2 mesh update (simulator, Debug app with optimised Core4D):** stress test 120-cell,
+    stereographic, Cells preset, fine subdivision (n = 8, m = 3): 503k triangles, 239k vertices,
+    13.4 ms CPU per frame (65 Hz), of which only 2.3 ms is the FrameBuilder pipeline; the rest is
+    copying ~17 MB per frame into the `LowLevelMesh` buffers. Normal settings stay at about 1 ms
+    (120-cell 81k triangles, 600-cell 69k triangles). Extrapolated: 250k triangles ≈ 6–7 ms in the
+    simulator. The device must give the real number; if the upload is too slow there, the next
+    steps are a packed 32-byte vertex format and writing straight into the mesh buffers, before
+    considering Metal (ask first).
+- **2026-11-08, night run (M6 and wrap-up):**
+  - Surfaces share their grid points, so normals are smooth; normals are turned towards the
+    viewer per vertex, which also handles the non-orientable Klein bottle. The checkerboard shows
+    the Klein bottle's seam flip directly.
+  - Hopf fibres are closed polylines (last index = first); tubes get caps at the closing point.
+  - The String Catalog (`Localizable.xcstrings`) is in the target and all UI strings are
+    `LocalizedStringKey`s, but `xcodebuild` does not write the extracted keys back into the
+    catalog; Xcode does that on the first build in the IDE.
+  - S3: `ManipulationComponent.configureEntity(_:collisionShapes:)` plus `ManipulationEvents`
+    subscriptions via `RealityViewContent.subscribe(to:)` compile; the probe sphere sits at the
+    front-right corner of the volume, outside the main input target, so the two do not compete.
+    Behaviour of all gestures is untested (simulator CLI cannot inject gestures).
+  - When the stress-test meshes (~240k vertices) are created, RealityKit logs "Hang detected while
+    waiting for renderer to free resources" once; the app then runs normally. Recreating very
+    large `LowLevelMesh`es is a visible hitch, so meshes are reused when their capacity suffices.
 
 ## 9. Glossary
 
