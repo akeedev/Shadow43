@@ -18,6 +18,9 @@ final class ShadowRenderer {
     private(set) var host: SceneHost
     /// Positioned by the host; carries the `ShadowComponent`, so it stays enabled.
     let root = Entity()
+    /// Room only: holds the root and, beside it, the floor disc that moves it (D38). The room view
+    /// adds this instead of the root.
+    let roomBase = Entity()
     /// Everything visible and touchable: the floor and light (metres) and the scaled content.
     /// The window disables it while the room is open (D30).
     let stage = Entity()
@@ -125,19 +128,28 @@ final class ShadowRenderer {
         inputTarget.components.set(CollisionComponent(shapes: [.generateSphere(radius: radius)], isStatic: true))
     }
 
-    /// Room only (D33): grabbing the floor disc moves the whole object (this root) through the
-    /// room; the system's manipulation does the work, translation only.
+    private static let upright = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+
+    /// Room only (D33, D38): grabbing the floor disc moves the whole object through the room. The
+    /// system's manipulation moves the disc, translation only, and the root follows it every frame
+    /// (`followDisc`). The disc is the root's sibling, not its parent: a manipulation on an
+    /// ancestor also took the grabs meant for the object, so it could no longer be turned. The
+    /// base is level (D36), so the disc stays parallel to the floor.
     private func makeMovable() {
-        var manipulation = ManipulationComponent()
-        manipulation.releaseBehavior = .stay
-        manipulation.dynamics.translationBehavior = .unconstrained
-        manipulation.dynamics.primaryRotationBehavior = .none
-        manipulation.dynamics.secondaryRotationBehavior = .none
-        manipulation.dynamics.scalingBehavior = .none
-        manipulation.dynamics.inertia = .zero
-        root.components.set(InputTargetComponent())
-        root.components.set(manipulation)
-        floor.makeHandle(moving: root)
+        roomBase.name = "RoomBase"
+        roomBase.addChild(root)
+        let disc = floor.makeHandle()
+        disc.position = root.position + floor.discOffset
+        roomBase.addChild(disc)
+    }
+
+    /// Room only: the root goes where the disc was moved, and both stay upright (D36, D38).
+    private func followDisc() {
+        let disc = floor.disc
+        if disc.orientation != Self.upright { disc.orientation = Self.upright }
+        if root.orientation != Self.upright { root.orientation = Self.upright }
+        let target = disc.position - floor.discOffset
+        if root.position != target { root.position = target }
     }
 
     private static func probePosition(_ host: SceneHost) -> SIMD3<Float> {
@@ -153,6 +165,7 @@ final class ShadowRenderer {
         let shown = !(host.kind == .window && model.isRoomOpen)
         if stage.isEnabled != shown { stage.isEnabled = shown }
         guard shown else { return }
+        if host.kind == .room { followDisc() }
         let rebuilt = syncStructure()
         let layers = currentLayers()
         if layers != lastLayersApplied || rebuilt {

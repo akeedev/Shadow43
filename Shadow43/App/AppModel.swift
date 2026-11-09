@@ -30,7 +30,7 @@ final class AppModel {
     var isHelpMode = false
     /// What the info window shows.
     var helpTopic: HelpTopic = .about
-    /// Whether the info window beside the volume is open; the volume opens and closes it (D25).
+    /// Whether the info window is open; the volume and the controls open it (D25, D40).
     var showsHelp = false
     /// Set when the volume or the controls window closes: every other window, and the room, then
     /// close themselves, so the whole app closes (D34).

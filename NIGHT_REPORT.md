@@ -292,6 +292,30 @@ Device checklist:
   object itself still rotate it?
 - Metal on the exploded 600-cell: Developer → Performance overlay on, and tell me Frame and CPU.
 
+## Panels back to windows, level room, turning in the room (2026-11-09, D35–D39)
+- **Panels (D35, reverted by D38):** the movable ornaments kept their places, but could get
+  stuck in front of the volume, moved with it and did not turn towards you. The Controls and Info
+  are windows again, exactly as before; their places are not saved (visionOS offers no way).
+- **Room level (D36):** the room is placed from the head's position and direction, without its
+  tilt, so the disc is parallel to the floor; it stays level while you drag it.
+- **Room button (D37):** "Open in room" is on the Display tab, without "experimental".
+- **Turning in the room (D39):** the disc now moves itself and the object follows it, so a grab
+  on the object turns it again instead of moving everything.
+
+Device checklist:
+- Controls and Info: back to the old windows (move, turn towards you, close closes the app)?
+- Room: open it with your head tilted down; is the disc level? Drag the disc: does the object
+  come along and stay level?
+- Room: pinch-drag the object: does it turn in 4D again, and can you throw it?
+
+Info below the controls (D40): Info now opens below the Controls window, wherever you have put
+it, instead of low in front of you. Its own place is still not saved.
+
+Device checklist:
+- Move the Controls, then tap "?" or About: does Info open below them?
+- Switch tabs with Info open: do the Controls grow into Info?
+- Close Info and open it again: is it below the Controls again?
+
 ## Files
 New, unless marked as changed.
 - **Root:** `project.yml`, `NIGHT_REPORT.md`; changed: `DESIGN.md` (§7 D11–D14, §8 findings),

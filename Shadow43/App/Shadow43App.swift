@@ -60,7 +60,7 @@ struct Shadow43App: App {
         }
         .defaultSize(HelpPanel.defaultSize)
         .windowResizability(.contentMinSize)
-        .defaultWindowPlacement { _, _ in PanelWindow.infoPlacement }
+        .defaultWindowPlacement { _, context in PanelWindow.infoPlacement(in: context) }
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 

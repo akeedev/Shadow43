@@ -56,8 +56,8 @@ struct VolumeView: View {
             }
             .onAppear {
                 model.isClosing = false
+                // The controls open Info if needed, once they exist to place it by (D40).
                 openWindow(id: PanelWindow.controlsID)
-                if model.showsHelp { openWindow(id: PanelWindow.infoID) }
             }
             .onChange(of: model.showsHelp) { _, shows in
                 if shows {

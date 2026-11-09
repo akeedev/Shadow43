@@ -172,8 +172,9 @@ restructuring.
   - The content (root entity plus system) does not depend on the scene that hosts it. The
     volumetric window and an `ImmersiveSpace` (mixed immersion) host *the same* content and share
     one `ViewState`.
-  - v1 declares the `ImmersiveSpace` and opens it from an "Open in room (experimental)" button.
-    It shows the content at room scale (about 2 m), with the same controls and no extra features.
+  - v1 declares the `ImmersiveSpace` and opens it from an "Open in room" button on the Display
+    tab [D37]. It shows the content at room scale (about 2 m), level in front of the viewer [D36],
+    with the same controls and no extra features.
   - Everything that differs by host goes through one `SceneHost` value: bounds, and what the host
     knows about the viewer. Later additions slot in there without restructuring: head pose for
     transparency sorting via ARKit world tracking, hand tracking, and placing the content on real
@@ -190,15 +191,16 @@ restructuring.
 simulator, for precision and for accessibility.
 
 The control panel is a window of its own, opened left of the volume, which the user can move
-[D25]; help and About open in a second window, the *Info* panel. The panel is at most two levels
-deep:
+[D25]; help and About open in a second window, the *Info* panel, below the controls wherever they
+are [D40]. The panel is at most two levels deep [D35 tried movable ornaments instead and was
+reverted, D38]:
 - **Object:** grouped by kind; p and q for duoprisms
 - **Projection:** 3 presets plus the κ and s sliders
-- **Display:** 4 presets plus the layer controls from 3.4
+- **Display:** 4 presets plus the layer controls from 3.4, and "Open in room" [D37]
 - **Surface** [D24]: material, pattern, thickness
 - **Motion:** 4 presets, friction, Stop, Reset, and 6 sliders (speed per plane)
 - **Developer** (collapsed): transparency method (S1), performance overlay (S2), gesture test (S3),
-  "Open in room"
+  floor shadow method (S4), drag mapping, freeze time
 - Next to the tabs [D22]: **?** (help mode: tap any control to have it explained), **About**
   (version, author, usage guide) and **Reset all** (tap twice)
 
@@ -610,6 +612,12 @@ checked without clicking. The Developer section offers the same.
 | D32 | 2026-11-08 | Gesture input target in the window: a sphere filling the volume (radius ½ of its smallest side), centred and never lifted; in the room it follows the object's size and lift. The gestures target only entities with `ShadowInputComponent` | on the device an enlarged object stopped reacting until Reset all: the input sphere was lifted with the object (D21) and left the volume, where touches are not delivered. Targeting by component keeps other touchable entities (the room's disc) from rotating the object |
 | D33 | 2026-11-08 | Room: the floor disc is a handle. It redirects the system's manipulation (`ManipulationComponent.HitTarget`) to the room's root, translation only, so dragging the disc moves object, disc and light through the room; the disc stays visible without the floor shadow | the user asked to move the room object by grabbing the disc; the system's manipulation needs no own gesture maths under the head anchor |
 | D34 | 2026-11-08 | Closing the volume or the controls closes the app: both set `isClosing`, and every window (and the room) then closes itself. The "Controls" button to reopen closed controls is gone | the user wants one close to end the app; a window that is going away may no longer be able to close the others [verify on device] |
+| D35 | 2026-11-09 | *Reverted by D38.* Controls and Info are ornaments of the volume again (supersedes D25's windows), each with a grab bar below it. A panel's place is a reference point of the volume per axis (lower edge, centre or upper edge) plus an offset in metres (`PanelPlace`), saved with the settings; dragging the bar moves the panel in 3D, and on release each axis is re-anchored to the nearest reference. While dragging, the ornament keeps its anchor, gets a 1500 pt transparent margin and the panel is shifted inside it; on release the shift becomes the anchor. Reset all keeps the places. `-controlsAt` / `-infoAt` set them for snapshots. Closing the app now means closing the volume (D34's controls window is gone) | the user wants the panels to stay where they were put, relative to the object, also after closing Info and between launches. visionOS lets an app neither read nor set a window's position (`WindowPlacement` only knows beside, above, below and utility panel), so windows cannot do this. An ornament measures gestures only in its own space, which moves with its anchor, and clips to its bounds (§8), hence the margin. Trade-offs: the panels move with the volume, have no system bar and cannot be resized by hand; a panel right below the volume hides its window bar (D23) |
+| D36 | 2026-11-09 | Room content is placed level: under an entity at the head's pose without pitch and roll (`LevelPose`, from ARKit world tracking, queried once when the room opens; the head anchor only if world tracking is unavailable). The renderer keeps the root upright every frame | the user: dragging the disc tilted the object; it should stay parallel to the floor. The head anchor (D30) carried the head's tilt at opening into the content. World tracking needs no authorization [verify on device] |
+| D37 | 2026-11-09 | "Open in room" moves from Developer to the Display tab, without "experimental" | the user: the room works |
+| D38 | 2026-11-09 | D35 reverted: Controls and Info are windows again, as in D25 and D34 (closing the volume or the controls closes the app); no saved panel places | on the device the ornaments did what D35 promised but were worse to use: a panel moved in front of the volume could no longer be grabbed by its bar (its buttons still worked), and it could not be moved away from the volume, since it moves with it; ornaments stay parallel to the volume instead of turning towards the viewer as windows do; Info behaved oddly. The user prefers the windows |
+| D39 | 2026-11-09 | Room: the floor disc is the root's sibling under a room base, with the `ManipulationComponent` on the disc itself; the root follows the disc every frame (supersedes D33's redirect to the root) | on the device, grabbing the object in the room moved everything instead of turning it: the manipulation sat on the root, an ancestor of the object's input sphere, and took its grabs too |
+| D40 | 2026-11-09 | Info opens `.below(controls)`; `.utilityPanel` only if the controls are closed (supersedes D25's Info placement). The controls window opens Info at launch when help is asked for, the volume only the controls | the user wants Info to come back where they put it; visionOS cannot save a window's place (§8), but placing it by the controls keeps it near wherever the user moved them. Below, not beside: the controls are 1060 pt wide and a window left of them would land on the volume if the controls were moved to its right. Opened in the same `onAppear` as the controls, Info did not find them and fell back to the utility panel. Risks [verify on device]: the controls change height with the tab and may grow into Info; Info sits low if the controls already are |
 
 ## 8. Findings (continued during implementation)
 
@@ -795,6 +803,29 @@ checked without clicking. The Developer section offers the same.
   simulator, so the device's GPU is the limit (many overlapping reflective, translucent layers;
   explode doubles the faces and makes five times the edges). Not yet addressed; needs the
   device's overlay numbers.
+- **2026-11-09, panels as movable ornaments, level room (D35–D37):**
+  - `WindowPlacement.Position` in the visionOS 27 SDK has only `utilityPanel`, `leading`,
+    `trailing`, `above`, `below` (and the deprecated `replacing`); `UIWindowScene` geometry
+    preferences only size. No API reads or sets a window's position.
+  - Ornament anchors far outside the volume work (`.scene(UnitPoint3D)` with x = −0.3 or 1.2,
+    y = 1.4, z = 1.4). Content shifted with `.offset` past the ornament's bounds is cut off; with a
+    transparent `.padding` around it, the shifted panel shows whole, also shifted in z.
+  - In an ornament, `frame(in: .global)` and `frame(in:)` of a named space declared on the volume
+    both gave the panel's own origin whatever the anchor, so the gesture coordinates move with
+    the ornament. Dragging itself cannot be driven in the simulator [verify on device].
+  - In the simulator the room's device anchor is the space origin with no turn, so the level
+    placement looks like before; it opens and logs "room placed level".
+- **2026-11-09, device round (D35, D38, D39):**
+  - Dragging the ornament panels by their bars worked. But a panel moved in front of the volume
+    could no longer be grabbed by its bar, while its buttons still reacted, and it could only be
+    moved together with the volume. Ornaments do not turn towards the viewer; windows do.
+  - In the room, a grab on the object moved object and disc (D33's manipulation on the root
+    caught the grabs on its descendants), so the object could not be turned or thrown there.
+- **2026-11-09, Info below the controls (D40):** in the simulator, Info opened with
+  `.below(controls)` appears under the controls window, left of the volume. Opened in the same
+  `onAppear` as the controls, the placement closure did not see them yet and Info took the
+  utility-panel spot; opened from the controls' `onAppear`, it found them. Moving the controls
+  first cannot be driven in the simulator [verify on device].
 
 ## 9. Glossary
 

@@ -114,6 +114,50 @@ struct DisplaySection: View {
             // Factor on top of the automatic size (D15); also the two-hand pinch.
             LabeledSlider(title: "Size", value: $model.scale, range: ViewState.scaleRange, format: "× %.2f")
                 .helpTarget(.size)
+            RoomButton()
+        }
+    }
+}
+
+/// Opens or closes the room (D30; on the Display tab since D37). Why the room did not open is
+/// shown below the button and logged.
+struct RoomButton: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
+    @State private var problem: LocalizedStringKey?
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Button(model.isRoomOpen ? "Close room" : "Open in room", systemImage: "cube.transparent") {
+                Task { await toggle() }
+            }
+            .tint(model.isRoomOpen ? .accentColor : nil)
+            .helpTarget(.room)
+            if let problem {
+                Text(problem).font(.footnote).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func toggle() async {
+        if model.isRoomOpen {
+            await dismissImmersiveSpace()
+            model.isRoomOpen = false
+            return
+        }
+        let result = await openImmersiveSpace(id: RoomView.spaceID)
+        ShadowRenderer.logger.notice("Open in room: \(String(describing: result), privacy: .public)")
+        switch result {
+        case .opened:
+            model.isRoomOpen = true
+            problem = nil
+        case .userCancelled:
+            problem = "The room was not opened: cancelled."
+        case .error:
+            problem = "The room could not be opened (visionOS reported an error)."
+        @unknown default:
+            problem = "The room could not be opened."
         }
     }
 }
@@ -181,11 +225,9 @@ struct MotionSection: View {
     }
 }
 
-/// Developer section: spikes S1–S3, freezing time and the experimental room.
+/// Developer section: spikes S1–S4, the drag mapping and freezing time.
 struct DeveloperSection: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
-    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
 
     var body: some View {
         @Bindable var model = model
@@ -226,44 +268,11 @@ struct DeveloperSection: View {
             }
             .foregroundStyle(.secondary)
             .helpTarget(.viewerSide)
-            Button(model.isRoomOpen ? "Close room" : "Open in room (experimental)",
-                   systemImage: "cube.transparent") {
-                Task { await toggleRoom() }
-            }
-            .helpTarget(.room)
-            if let roomProblem {
-                Text(roomProblem).font(.footnote).foregroundStyle(.red)
-            }
             if !model.launchProblems.isEmpty {
                 Text("Ignored launch arguments: \(model.launchProblems.joined(separator: ", "))")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    /// Why the room did not open, shown below the button; on the device the button seemed to do
-    /// nothing, so every outcome is logged and shown.
-    @State private var roomProblem: LocalizedStringKey?
-
-    private func toggleRoom() async {
-        if model.isRoomOpen {
-            await dismissImmersiveSpace()
-            model.isRoomOpen = false
-            return
-        }
-        let result = await openImmersiveSpace(id: RoomView.spaceID)
-        ShadowRenderer.logger.notice("Open in room: \(String(describing: result), privacy: .public)")
-        switch result {
-        case .opened:
-            model.isRoomOpen = true
-            roomProblem = nil
-        case .userCancelled:
-            roomProblem = "The room was not opened: cancelled."
-        case .error:
-            roomProblem = "The room could not be opened (visionOS reported an error)."
-        @unknown default:
-            roomProblem = "The room could not be opened."
         }
     }
 }

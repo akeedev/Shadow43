@@ -3,7 +3,7 @@
 import SwiftUI
 
 /// The two panels, each in its own window so the user can move it (D25): the controls left of the
-/// volume, help and About ("Info") where visionOS puts utility panels (low, in front of the user).
+/// volume, help and About ("Info") below the controls (D40).
 ///
 /// Neither opens at the default spot in front of the volume: a window there made visionOS push
 /// the volume back and dim it (D23). Neither is restored at launch. The volume opens the controls
@@ -20,17 +20,27 @@ enum PanelWindow {
         return WindowPlacement(.leading(volume))
     }
 
-    /// Not beside the volume: only the first window placed beside it showed up; a second one,
-    /// on the other side, opened out of view (simulator, either side).
-    static var infoPlacement: WindowPlacement { WindowPlacement(.utilityPanel) }
+    /// Below the controls, wherever the user has put them (D40), so Info comes back near them each
+    /// time it opens. Not beside the volume: a second window placed there opened out of view
+    /// (simulator). Where the system puts utility panels if the controls are closed.
+    static func infoPlacement(in context: WindowPlacementContext) -> WindowPlacement {
+        guard let controls = context.windows.first(where: { $0.id == controlsID }) else {
+            return WindowPlacement(.utilityPanel)
+        }
+        return WindowPlacement(.below(controls))
+    }
 }
 
 /// Content of the controls window. Closing it closes the app (D34).
 struct ControlsWindow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ControlPanel()
+            // Info opened together with the controls (help at launch) would not find them yet
+            // and land at the utility-panel spot; opened from here it goes below them (D40).
+            .onAppear { if model.showsHelp { openWindow(id: PanelWindow.infoID) } }
             .onDisappear { model.isClosing = true }
             .closesWithApp(windowID: PanelWindow.controlsID)
     }

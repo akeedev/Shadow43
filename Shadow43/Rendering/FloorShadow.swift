@@ -18,7 +18,8 @@ final class FloorShadow {
     private var casters: [Entity] = []
     private var method: FloorShadowMethod?
     private var enabled: Bool?
-    /// The disc is the room's handle (D33) and stays visible even without the floor shadow.
+    /// The disc is the room's handle (D33, D38): it then lives beside the content, not in `root`,
+    /// and stays visible even without the floor shadow.
     private var isHandle = false
 
     init(host: SceneHost) {
@@ -43,23 +44,39 @@ final class FloorShadow {
         layout(for: host)
     }
 
+    /// Where the disc sits relative to the content's root.
+    private(set) var discOffset: SIMD3<Float> = .zero
+
     /// Sizes and places disc and light for the host's box (also after a resize, D19).
     func layout(for host: SceneHost) {
         let radius = 0.3 * min(host.bounds.x, host.bounds.z)
         disc.scale = [radius, 1, radius]
-        disc.position = [0, host.floorY, 0]
+        discOffset = [0, host.floorY, 0]
+        // A handle is placed by its owner and then moved by the user.
+        if !isHandle { disc.position = discOffset }
         light.position = [0, host.bounds.y * 0.48, 0]
     }
 
-    /// Makes the disc a handle: grabbing it moves `target`, which needs a `ManipulationComponent`
-    /// (D33). The collision box is in the disc's unit-radius space and scales with it.
-    func makeHandle(moving target: Entity) {
+    /// Makes the disc a handle that the user moves with the system's manipulation, translation
+    /// only (D33, D38), and takes it out of `root`; the caller adds it beside the content, places
+    /// it and makes the content follow it. The collision box is in the disc's unit-radius space
+    /// and scales with it.
+    func makeHandle() -> ModelEntity {
         isHandle = true
+        disc.removeFromParent()
         disc.components.set(CollisionComponent(shapes: [.generateBox(width: 2, height: 0.06, depth: 2)]))
         disc.components.set(InputTargetComponent())
         disc.components.set(HoverEffectComponent())
-        disc.components.set(ManipulationComponent.HitTarget(redirectedEntity: target))
+        var manipulation = ManipulationComponent()
+        manipulation.releaseBehavior = .stay
+        manipulation.dynamics.translationBehavior = .unconstrained
+        manipulation.dynamics.primaryRotationBehavior = .none
+        manipulation.dynamics.secondaryRotationBehavior = .none
+        manipulation.dynamics.scalingBehavior = .none
+        manipulation.dynamics.inertia = .zero
+        disc.components.set(manipulation)
         enabled = nil
+        return disc
     }
 
     /// Registers entities that cast the shadow (the content's mesh entities).

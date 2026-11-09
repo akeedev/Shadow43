@@ -3,7 +3,7 @@
 import Core4D
 import SwiftUI
 
-/// The content of the info window right of the volume (D22, D25): the About page, or the
+/// The content of the info window below the controls (D22, D25, D40): the About page, or the
 /// explanation of the control last tapped in "?" mode. An explained object is shown in the
 /// volume itself (see `HelpTarget`).
 struct HelpPanel: View {

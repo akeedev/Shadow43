@@ -89,13 +89,13 @@ enum HelpTopic: Hashable {
         case .tab(.projection):
             "A 4D object cannot be shown directly; the app shows its 3D shadow. The projection decides how the fourth coordinate, w, is turned into 3D.\n\nThe three presets are points in the space of the two sliders, so you can morph smoothly from one to another."
         case .tab(.display):
-            "How the shadow is drawn: edges, faces, colours, cells, and extras such as the floor shadow and the axes. A preset sets several of these at once; you can change each one afterwards."
+            "How the shadow is drawn: edges, faces, colours, cells, and extras such as the floor shadow and the axes. A preset sets several of these at once; you can change each one afterwards.\n\n*Open in room* shows the object at room size."
         case .tab(.surface):
             "How the faces themselves look: their material, an image pattern on them, and their thickness. These looks are experimental."
         case .tab(.motion):
             "In 4D an object turns in planes, not around axes, and there are six of them. XY, XZ and YZ turn the shadow like an ordinary 3D object. XW, YW and ZW turn the object into the fourth dimension: the shadow changes its shape.\n\nThe presets set the speeds, the sliders set each plane's speed, and you can also throw the object with your hand."
         case .tab(.developer):
-            "Tools for testing and tuning: rendering methods, measurements and experimental features. These settings may change or disappear in later versions."
+            "Tools for testing and tuning: rendering methods and measurements. These settings may change or disappear in later versions."
         case .object(.fiveCell):
             "**5-cell** (pentachoron, 4-simplex)\n\nThe simplest 4D polytope and the 4D relative of the tetrahedron: 5 vertices, each joined to all the others. 10 edges, 10 triangles, 5 tetrahedral cells.\n\nIts shadow often looks like a tetrahedron with a fifth point inside. As it turns in 4D, that point moves out and another vertex moves in."
         case .object(.tesseract):
@@ -191,7 +191,7 @@ enum HelpTopic: Hashable {
         case .viewerSide:
             "Which side of the window you are on, as reported by visionOS. *Sorted* transparency sorts towards that side."
         case .room:
-            "Experimental: shows the object at room size in front of you, in an immersive space; the window stays empty meanwhile. To move it through the room, pinch the disc below it and drag. Other apps' windows are hidden while the room is open."
+            "Shows the object at room size in front of you, in an immersive space; the window stays empty meanwhile. The object stands level, even if you tilt your head while opening the room. To move it through the room, pinch the disc below it and drag. Other apps' windows are hidden while the room is open."
         case .resetAll:
             "Puts every setting back to its default: object, projection, display, motion, size, orientation and the developer settings. Tap it twice to confirm."
         }
