@@ -26,7 +26,7 @@ public struct Cell: Equatable, Sendable {
     }
 }
 
-/// The common data model for every object (DESIGN 3.1, 6.2): exact combinatorics, built once.
+/// The common data model for every object (DESIGN 3, 9.1): exact combinatorics, built once.
 public struct Complex4D: Sendable {
     /// Points in ℝ⁴, centred, circumradius 1.
     public var vertices: [SIMD4<Double>]

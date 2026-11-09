@@ -5,7 +5,7 @@ import RealityKit
 import SwiftUI
 
 /// The RealityKit view that hosts the shadow content. The content depends only on the
-/// `SceneHost` value, so the window and the immersive space show the same thing (DESIGN 3.5).
+/// `SceneHost` value, so the window and the immersive space show the same thing (DESIGN 9.3).
 struct ShadowRealityView: View {
     let host: SceneHost
     @Environment(AppModel.self) private var model

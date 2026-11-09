@@ -2,7 +2,7 @@
 
 import Foundation
 
-/// The three classic projections as points in the (κ, s) plane (DESIGN 3.3).
+/// The three classic projections as points in the (κ, s) plane (DESIGN 5).
 public enum ProjectionPreset: String, CaseIterable, Codable, Sendable {
     case orthographic, perspective, stereographic
 
@@ -20,7 +20,7 @@ public enum ProjectionPreset: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// Named partial assignments of the display layers (DESIGN 3.4).
+/// Named partial assignments of the display layers (DESIGN 6.2).
 public enum DisplayPreset: String, CaseIterable, Codable, Sendable {
     case wireframe, glass, solid, cells
 
@@ -68,7 +68,7 @@ public enum DisplayPreset: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// Motion presets: each sets Ω only; R is left alone (DESIGN 3.2).
+/// Motion presets: each sets Ω only; R is left alone (DESIGN 4).
 public enum MotionPreset: String, CaseIterable, Codable, Sendable {
     case simple, double, isoclinic, drift
 

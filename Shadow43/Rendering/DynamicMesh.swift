@@ -6,7 +6,7 @@ import Metal
 import RealityKit
 
 /// A `LowLevelMesh` with the `MeshVertex` layout (position, normal, uv0; 48-byte stride) that is
-/// rewritten every frame (DESIGN 6.3, step 6).
+/// rewritten every frame (DESIGN 11.1, step 6).
 @MainActor
 final class DynamicMesh {
     let lowLevelMesh: LowLevelMesh

@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// Parametric surfaces and curve families in ℝ⁴ (DESIGN 6.7).
+/// Parametric surfaces and curve families in ℝ⁴ (DESIGN 10.6).
 public enum Surfaces {
     /// A parametric surface f(u, v) on a grid of nU × nV cells, including the closing row and
     /// column (seam points are duplicated, not glued). UV is passed along normalised to [0, 1];

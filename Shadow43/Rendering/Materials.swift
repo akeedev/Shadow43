@@ -26,7 +26,7 @@ struct MaterialKey: Hashable {
     }
 }
 
-/// Creates and caches materials (DESIGN 6.5): `PhysicallyBasedMaterial` for matte/glossy,
+/// Creates and caches materials (DESIGN 11.6): `PhysicallyBasedMaterial` for matte/glossy,
 /// `UnlitMaterial` for glowing, each with a colour texture.
 @MainActor
 final class MaterialFactory {

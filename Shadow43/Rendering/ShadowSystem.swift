@@ -8,7 +8,7 @@ struct ShadowComponent: Component {
     let renderer: ShadowRenderer
 }
 
-/// Drives the per-frame pipeline (DESIGN 6.3) for every shadow root in the scene.
+/// Drives the per-frame pipeline (DESIGN 11.1) for every shadow root in the scene.
 struct ShadowSystem: System {
     private static let query = EntityQuery(where: .has(ShadowComponent.self))
 

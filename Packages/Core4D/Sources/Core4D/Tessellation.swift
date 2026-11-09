@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// Render-ready, static geometry in ℝ⁴ (DESIGN 6.2). Rebuilt only when the object, explode or
+/// Render-ready, static geometry in ℝ⁴ (DESIGN 9.1). Rebuilt only when the object, explode or
 /// subdivision changes; everything per frame happens in `FrameBuilder`.
 public struct RenderMesh4D: Sendable {
     /// Points with their flat and spherized positions and a static colour key.
@@ -52,7 +52,7 @@ public struct RenderMesh4D: Sendable {
     public init() {}
 }
 
-/// Subdivision levels (DESIGN 6.4): edges into n segments, polygons as a fan around the
+/// Subdivision levels (DESIGN 10.4): edges into n segments, polygons as a fan around the
 /// centroid with m² subdivision.
 public struct TessellationOptions: Equatable, Sendable {
     public var edgeSegments: Int

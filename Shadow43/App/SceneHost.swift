@@ -10,7 +10,7 @@ protocol ViewerPoseProvider: AnyObject {
     func viewerPosition() -> SIMD3<Float>?
 }
 
-/// Everything that differs between the volumetric window and the immersive space (DESIGN 3.5).
+/// Everything that differs between the volumetric window and the immersive space (DESIGN 9.3).
 /// Scene content depends only on this value, never on the hosting scene itself.
 @MainActor
 struct SceneHost {
@@ -44,8 +44,8 @@ struct SceneHost {
         SceneHost(kind: .window, bounds: bounds, viewerPose: nil, contentOffset: .zero,
                   tracksVolumeViewpoint: true, thicknessReferenceSide: defaultWindowBounds.min())
     }
-    /// The immersive space (D30): a 2 m box whose centre is placed 2 m in front of the viewer's
-    /// eyes, slightly lower, once when the room opens; the object is then about 1.5 m across.
+    /// The immersive space (D30, D36): a 2.4 × 2 × 2.4 m box whose centre is placed once, level,
+    /// 2 m in front of the viewer's eyes and 15 cm lower; the object is then about 1.5 m across.
     static let room = SceneHost(kind: .room, bounds: [2.4, 2, 2.4], viewerPose: nil,
                                 contentOffset: [0, -0.15, -2], tracksVolumeViewpoint: false,
                                 thicknessReferenceSide: 2)

@@ -84,13 +84,13 @@ You only have the simulator. Everything that needs the device goes into the morn
 
 | Step | Work | Done tonight when |
 |---|---|---|
-| M0 | `project.yml`, `Config/Shared.xcconfig`, `Packages/Core4D`, app skeleton with volumetric window and `ImmersiveSpace` stub (DESIGN 6.1, 3.5), String Catalog, snapshot mode (launch arguments → `ViewState`, fixed time) | project generates, builds, launches in the simulator; screenshot shows a placeholder |
-| M1 | Core4D: `Complex4D`, polytope generator (6.6) for the 5-, 8-, 16- and 24-cell, rotation (R, Ω, step, orthonormalisation), projection (κ, s), tessellation to `RenderMesh4D` | all tests from 6.8 that apply to these objects are green |
-| M2 | Rendering pipeline (6.3, 6.5): `LowLevelMesh` for faces and tubes, a RealityKit `System`, motion and projection presets, basic control panel; **S2**: performance overlay (frame time, triangle count) | screenshots: tesseract in orthographic, perspective and stereographic; all 4 polytopes |
+| M0 | `project.yml`, `Config/Shared.xcconfig`, `Packages/Core4D`, app skeleton with volumetric window and `ImmersiveSpace` stub (DESIGN 12.2, 7), String Catalog, snapshot mode (launch arguments → `ViewState`, fixed time) | project generates, builds, launches in the simulator; screenshot shows a placeholder |
+| M1 | Core4D: `Complex4D`, polytope generator (10.5) for the 5-, 8-, 16- and 24-cell, rotation (R, Ω, step, orthonormalisation), projection (κ, s), tessellation to `RenderMesh4D` | all tests from 12.4 that apply to these objects are green |
+| M2 | Rendering pipeline (11): `LowLevelMesh` for faces and tubes, a RealityKit `System`, motion and projection presets, basic control panel; **S2**: performance overlay (frame time, triangle count) | screenshots: tesseract in orthographic, perspective and stereographic; all 4 polytopes |
 | M3 | Display layers, presets, colour sources (uniform, by W, per cell), explode, floor shadow; **S1**: all three transparency methods switchable in the Developer section; **S4** | screenshots of every display preset and colour source, each transparency method, and the floor shadow |
-| M4 | Gestures, variant A (3.6, 6.4), throw and catch, friction; **S3**: gesture test scene with raw values, including `ManipulationComponent` events (variant C) | builds; mapping logic tested in Core4D; gestures listed in the device checklist |
-| M5 | 600- and 120-cell via the bootstrap (6.6), duoprisms p×q, subdivision for smooth stereographic display, profiling | f-vector tests green; screenshots of the 120- and 600-cell, stereographic |
-| M6 | Parametric surfaces and curves (6.7): Klein bottle, Clifford torus, Hopf fibration; colour sources surface parameter and per fibre | tests green; screenshots of all three |
+| M4 | Gestures, variant A (8.1, 10.7), throw and catch, friction; **S3**: gesture test scene with raw values, including `ManipulationComponent` events (variant C) | builds; mapping logic tested in Core4D; gestures listed in the device checklist |
+| M5 | 600- and 120-cell via the bootstrap (10.5), duoprisms p×q, subdivision for smooth stereographic display, profiling | f-vector tests green; screenshots of the 120- and 600-cell, stereographic |
+| M6 | Parametric surfaces and curves (10.6): Klein bottle, Clifford torus, Hopf fibration; colour sources surface parameter and per fibre | tests green; screenshots of all three |
 
 ### Rules for the unattended run
 
@@ -124,7 +124,7 @@ You only have the simulator. Everything that needs the device goes into the morn
 8. **Keep the scope tight.** Only what DESIGN.md describes, no extra features. Small, readable
    files with brief doc comments on public types.
 9. **Watch your context.** After each milestone, update `NIGHT_REPORT.md` so that a resumed session
-   could continue from it alone. Update DESIGN.md §8 with findings, for example about API behaviour
+   could continue from it alone. Update DESIGN.md §13 with lessons learnt, for example about API behaviour
    and the chosen spike approaches.
 10. **At the end:**
     - finalise `NIGHT_REPORT.md`,

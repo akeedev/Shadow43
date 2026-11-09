@@ -4,7 +4,7 @@ import Foundation
 import simd
 
 /// One of the six coordinate planes of ℝ⁴ in which a rotation can take place.
-/// XY, XZ and YZ turn the shadow rigidly; XW, YW and ZW deform it (DESIGN 3.2).
+/// XY, XZ and YZ turn the shadow rigidly; XW, YW and ZW deform it (DESIGN 4).
 public enum RotationPlane: String, CaseIterable, Codable, Sendable {
     case xy, xz, yz, xw, yw, zw
 
@@ -76,7 +76,7 @@ public struct AngularVelocity4D: Codable, Equatable, Sendable {
     }
 }
 
-/// A 4×4 rotation matrix R, the orientation of the object (DESIGN 3.2). Codable as 16 numbers
+/// A 4×4 rotation matrix R, the orientation of the object (DESIGN 4). Codable as 16 numbers
 /// in column-major order.
 public struct Orientation4D: Equatable, Sendable, Codable {
     public var matrix: simd_double4x4
@@ -102,7 +102,7 @@ public struct Orientation4D: Equatable, Sendable, Codable {
     }
 }
 
-/// Rotation math in ℝ⁴ (DESIGN 6.4). All rotations are applied in the world frame, i.e.
+/// Rotation math in ℝ⁴ (DESIGN 10.2). All rotations are applied in the world frame, i.e.
 /// multiplied from the left.
 public enum Rotation4D {
     /// Unit vector along axis `i` (0 = x … 3 = w).
@@ -180,7 +180,7 @@ public enum Rotation4D {
         return simd_double4x4(columns: (c0, c1, c2, c3))
     }
 
-    /// `R ← orthonormalize(step(Ω, Δt) · R)` (DESIGN 6.3, step 1).
+    /// `R ← orthonormalize(step(Ω, Δt) · R)` (DESIGN 11.1, step 1).
     public static func advance(_ r: simd_double4x4, omega: AngularVelocity4D, dt: Double) -> simd_double4x4 {
         var m = r
         applyStep(omega, dt: dt, to: &m)

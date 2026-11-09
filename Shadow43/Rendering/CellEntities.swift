@@ -5,7 +5,7 @@ import Foundation
 import RealityKit
 import simd
 
-/// Transparency method 3 (spike S1, DESIGN 6.5): one entity pair per cell, only with explode > 0.
+/// Transparency method 3 (spike S1, DESIGN 11.5): one entity pair per cell, only with explode > 0.
 /// RealityKit sorts the cells as separate entities; within a convex cell the inner sides are drawn
 /// before the outer sides (one `ModelSortGroup` per cell).
 ///

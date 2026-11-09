@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// The Spherize and Project stages (DESIGN 3.3, 6.4).
+/// The Spherize and Project stages (DESIGN 5, 10.3).
 public enum Projection4D {
     /// Points with `1 − κw` below this are at or behind the eye and are dropped.
     public static let defaultEpsilon = 0.02

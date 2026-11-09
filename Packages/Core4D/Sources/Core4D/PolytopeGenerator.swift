@@ -4,7 +4,7 @@ import Foundation
 import simd
 
 /// Builds the full complex of a convex 4-polytope from its vertices and facet normals
-/// (DESIGN 6.6).
+/// (DESIGN 10.5).
 public enum PolytopeGenerator {
     /// 1. Centre and scale the vertices to circumradius 1.
     /// 2. For each normal n, the cell's vertex set is `{ i : v_i·n ≥ max_j(v_j·n) − ε }`.

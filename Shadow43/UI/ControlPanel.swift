@@ -4,7 +4,7 @@ import Core4D
 import SwiftUI
 
 /// The control panel in its own window left of the volume (D25), at most two levels deep
-/// (DESIGN 3.6): a tab row with help, About and Reset all, then the controls of that tab.
+/// (DESIGN 8.3): a tab row with help, About and Reset all, then the controls of that tab.
 struct ControlPanel: View {
     @Environment(AppModel.self) private var model
     /// Reset all needs a second tap within a few seconds.
@@ -14,7 +14,7 @@ struct ControlPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 8) {
                 // Buttons, not a segmented picker: on the device the segmented picker in this
-                // ornament highlighted but did not react to taps (DESIGN §8).
+                // ornament highlighted but did not react to taps (DESIGN 13.2).
                 ForEach(PanelTab.allCases) { tab in
                     SelectButton(title: tab.label, isSelected: model.panelTab == tab) {
                         model.panelTab = tab

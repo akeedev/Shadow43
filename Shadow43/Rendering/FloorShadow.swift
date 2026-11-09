@@ -5,7 +5,7 @@ import Foundation
 import RealityKit
 import UIKit
 
-/// The shadow of the shadow (DESIGN 3.5, spike S4): a light from above casts the 3D projection's
+/// The shadow of the shadow (DESIGN 6.4, spike S4): a light from above casts the 3D projection's
 /// shadow onto a subtle floor disc. Floor and light live in metres, outside the scaled content.
 ///
 /// Two methods, switchable in the Developer section: a `DirectionalLightComponent` with a shadow
@@ -18,7 +18,7 @@ final class FloorShadow {
     private var casters: [Entity] = []
     private var method: FloorShadowMethod?
     private var enabled: Bool?
-    /// The disc is the room's handle (D33, D38): it then lives beside the content, not in `root`,
+    /// The disc is the room's handle (D33, D39): it then lives beside the content, not in `root`,
     /// and stays visible even without the floor shadow.
     private var isHandle = false
 
@@ -58,7 +58,7 @@ final class FloorShadow {
     }
 
     /// Makes the disc a handle that the user moves with the system's manipulation, translation
-    /// only (D33, D38), and takes it out of `root`; the caller adds it beside the content, places
+    /// only (D33, D39), and takes it out of `root`; the caller adds it beside the content, places
     /// it and makes the content follow it. The collision box is in the disc's unit-radius space
     /// and scales with it.
     func makeHandle() -> ModelEntity {

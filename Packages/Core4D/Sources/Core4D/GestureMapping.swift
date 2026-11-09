@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// Maps gestures to rotations (DESIGN 3.6, 6.4, variant A). Pure functions so they can be tested.
+/// Maps gestures to rotations (DESIGN 8.1, 10.7, variant A). Pure functions so they can be tested.
 public struct GestureMapping: Codable, Equatable, Sendable {
     /// k: radians of 4D rotation per metre of drag.
     public var radiansPerMetre: Double
@@ -43,7 +43,7 @@ public struct GestureMapping: Codable, Equatable, Sendable {
     }
 }
 
-/// Estimates the velocity of a drag from its recent samples (DESIGN 6.4: last 0.1 s).
+/// Estimates the velocity of a drag from its recent samples (DESIGN 10.7: last 0.1 s).
 public struct VelocityTracker: Sendable {
     public var window: TimeInterval
     private var samples: [(time: TimeInterval, position: SIMD3<Double>)] = []

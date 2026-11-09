@@ -7,7 +7,7 @@ import SwiftUI
 /// Shadow43: the rotating 3D shadow of 4D objects.
 ///
 /// v1 shows a volumetric window with two panel windows beside it (D25). An `ImmersiveSpace`
-/// (mixed immersion) hosts the same content and shares the same `AppModel` (DESIGN 3.5, D5).
+/// (mixed immersion) hosts the same content and shares the same `AppModel` (DESIGN 7, D5).
 @main
 struct Shadow43App: App {
     @State private var model: AppModel
@@ -15,8 +15,8 @@ struct Shadow43App: App {
 
     init() {
         let model = AppModel()
-        // The saved settings are the base, launch arguments change it. In snapshot mode (any
-        // recognised launch argument) the app starts from the defaults and saves nothing (D29).
+        // Normally the app starts from the saved settings. In snapshot mode (any recognised
+        // launch argument) it starts from the defaults plus the arguments and saves nothing (D29).
         let args = SnapshotMode.launchArguments()
         let isSnapshot = LaunchConfiguration.isSnapshot(args)
         let saved = isSnapshot ? nil : SettingsStore.load()
@@ -30,7 +30,7 @@ struct Shadow43App: App {
         ShadowInputComponent.registerComponent()
     }
 
-    // `SwiftUI.Scene` must be qualified because RealityKit also defines `Scene` (DESIGN 6.1).
+    // `SwiftUI.Scene` must be qualified because RealityKit also defines `Scene` (DESIGN 12.2).
     var body: some SwiftUI.Scene {
         WindowGroup(id: VolumeView.windowID) {
             VolumeView()

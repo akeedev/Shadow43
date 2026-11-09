@@ -2,7 +2,7 @@
 
 import Foundation
 
-/// Snapshot mode (DESIGN 6.9): launch arguments such as
+/// Snapshot mode (DESIGN 12.5): launch arguments such as
 /// `-object tesseract -projection perspective -display glass -time 1.5` set `ViewState`, and
 /// `-time` freezes time at a fixed t.
 ///

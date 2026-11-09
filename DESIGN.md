@@ -1,847 +1,1176 @@
 # Shadow43: 4D shadows for Apple Vision Pro
 
-**Version 0.3 · 2026-11-08 · Status: design final, ready for implementation**
+**Design version 0.4 · 2026-11-09 · describes app version 0.10.0**
 
-How to read this document:
-- Part A (sections 1–4) describes *what* the app does.
-- Part B (sections 5–6) describes *how* it is built. It is complete enough to implement from.
-- Section 7 is the decision log, section 8 records findings during implementation, and section 9
-  is a glossary.
+**Shadow43 shows the three-dimensional shadows of four-dimensional objects in your room and lets
+you turn the objects in four dimensions with your hands.** You pick an object, such as the
+tesseract, and watch its shadow deform, turn inside out and pass through itself as the object
+turns. The shadow is stereoscopic, so you can walk around it. §1 explains the idea without
+mathematics.
 
-Markers in the text:
-- **[verify]**: a technical assumption that must be checked before relying on it. Check it against
-  the SDK interface files or a small experiment.
-- **[Dn]**: refers to decision n in section 7.
+The design rests on five ideas:
+
+1. **One data model for every object.** Polytopes, surfaces and curves all become a *complex* of
+   points, edges, faces and cells in ℝ⁴, so everything downstream treats them alike (§3).
+2. **One pipeline of independent stages.** Each stage has a few orthogonal controls; "modes" such
+   as *wireframe* or *stereographic* are only named presets of them [D9, D10].
+
+   ```
+   Object ──► Prepare ──► Spherize ──► Rotate ──► Project ──► Display
+   §3         explode,    s (§5)       R, Ω (§4)  κ (§5)      layers (§6),
+              subdivide                                       volume or room (§7)
+   ```
+
+3. **One state, one source of motion.** A single `ViewState` describes everything shown; presets,
+   launch arguments, saved settings and *Reset all* only assign parts of it. All motion is one
+   angular velocity Ω: presets and throws set it, a grab stops it (§4, §9.2).
+4. **Pure maths, thin rendering, two places.** A tested Swift package, Core4D, does the maths. The
+   app rebuilds the mesh on the CPU whenever something changed and hands it to RealityKit. The
+   same content runs in a volumetric window and, at room size, in an immersive space (§7, §9).
+5. **Nothing hidden.** Every gesture has a control in the panel, every visual state can be set by
+   launch arguments, and a help mode explains every control (§8, §12.5).
+
+**Status.** Milestones M0–M6 are done; the app runs in the simulator and on the Vision Pro. What
+is still to check, to fix or to try is in §14.
+
+**How to read this document.** Part A (§1–8) says what the app does, for everyone. Part B (§9–12)
+says how it is built, in enough detail to rebuild it. Part C (§13–16) holds the lessons from
+testing, the open points, the decision log and a glossary. **[Dn]** points to decision n in §15,
+which gives its reason. **[verify]** marks an assumption not yet checked on the device or against
+the SDK.
 
 ---
 
-# Part A: Concept
+# Part A: What the app does
 
-## 1. Goal
+## 1. The idea in plain words
 
-Shadow43 shows the three-dimensional shadow (the projection) of four-dimensional objects,
-floating freely in space. You pick an object and rotate it in four dimensions, either by hand or
-automatically. You then watch the shadow deform, turn itself inside out and pass through itself.
-The view is stereoscopic, so you can walk around it.
+**We cannot see a fourth dimension, but we can see its shadow, just as a flat creature could see
+the shadow of a cube.**
 
-**Guiding principle: a few independent controls instead of many modes.** Every aspect of the
-display is its own parameter. "Modes" are only named presets of these parameters.
+In Edwin A. Abbott's novella *Flatland: A Romance of Many Dimensions* (1884), A. Square lives in a
+plane. He knows length and breadth, but not height. One day a sphere visits him. All he can see is
+a circle that appears from nowhere, grows, shrinks and vanishes: the slices of the sphere as it
+passes through his world. Only when the sphere lifts him out of the plane does he understand. Then
+he asks about a fourth dimension, and the sphere, who has just explained the third, refuses to
+believe it.
 
-## 2. Existing solutions (researched 2026-11-08)
+We stand where A. Square stood. We cannot picture a fourth direction at right angles to the other
+three, but we can reason one dimension down:
 
-| App | Platform | What it does | What it lacks |
-|---|---|---|---|
-| [4D Toys](https://apps.apple.com/us/app/4d-toys/id1143791442) | iOS, listed for visionOS | 130 scenes with 4D physics, mostly 3D **slices**, wireframe | free object choice, projection modes, rotation planes; last update 2023 |
-| [4D Polytope Viewer](https://studio.pardesco.com/4d-viewer) | browser | 1700+ polytopes, 6 rotation planes, perspective and stereographic | not immersive, no gestures |
-| [Four Dimensional Space](https://apps.apple.com/us/app/id6762447300) | iPad app | one tesseract next to a black hole | controls, object choice |
+- **Building up.** Move a point and you get a line with 2 ends. Move the line sideways: a square
+  with 4 corners. Move the square upwards: a cube with 8 corners. Move the cube in a fourth
+  direction: a *tesseract*, with 16 corners. A cube is bounded by 6 squares; a tesseract by 8 cubes.
+- **Shadows.** Hold a wire cube in the sun. Its shadow on the table is flat, yet you can tell it
+  comes from a cube. Turn the cube, and the shadow changes from a square to a hexagon; its lines
+  slide through each other, although the cube itself is rigid. Under a lamp close above, the shadow
+  becomes a square inside a square, because the near face throws a larger shadow than the far
+  one. A Flatlander living in the table top would see only these shadows.
 
-**Conclusion:** No native spatial app offers free object choice, all rotation planes, continuous
-projections and gesture control.
+**Shadow43 does this one dimension up.** It shows the 3D shadow of a 4D object: an ordinary 3D
+object that you can walk around. Under the "lamp", the tesseract's shadow is a cube inside a cube.
+When the tesseract turns in 4D, the shadow deforms and turns inside out: the inner cube grows into
+the outer one while the outer one shrinks into the middle. Nothing is wrong with the shadow; a
+rigid object is turning in a direction we have no word for. Colour helps where the eye cannot: by
+default, parts nearer to the 4D lamp are red, parts farther away blue.
 
-## 3. Concept: one pipeline with independent stages
+The floor takes the last step down. A light from above throws the shadow of the shadow onto a disc
+below the object, which is what a Flatlander would see. So the whole chain 4D → 3D → 2D is in view
+at once.
 
-```
-Object ──► Preparation ──► Spherize ──► Rotate ──► Project ──► Scene
-(3.1)      (3.4)           s (3.3)      R, Ω (3.2) κ (3.3)     display (3.4), shadow (3.5)
-```
+Flatland's sphere shows itself in slices. Shadow43 shows shadows instead, because a shadow shows
+the whole object at once; slices are a later idea (§14.4).
 
-Each stage has its own controls. Changing one stage never requires adjusting another.
+## 2. Goal and principles
 
-### 3.1 Objects
+**Goal: let anyone hold a 4D object, turn it freely and understand what they see.** You choose the
+object and how it is projected and drawn, turn it in any of the six 4D rotation planes by hand or
+automatically, and look at it from every side. No native spatial app did this when the project
+started in November 2026: *4D Toys* shows 3D slices of fixed scenes, the *4D Polytope Viewer* runs
+in a browser, and *Four Dimensional Space* shows a single tesseract.
 
-All objects are converted into **one common data model**, a *complex* made of:
-- vertices (points in ℝ⁴)
-- edges (polylines)
-- faces (polygons)
-- cells (closed groups of faces, polytopes only)
+Principles, which every change has to keep:
+- **Few independent controls instead of modes.** Every aspect of the picture is its own parameter;
+  a mode is a named preset of parameters.
+- **Every gesture has a control** in the panel, for the simulator, for precision and for
+  accessibility.
+- **Every visual state can be set by launch arguments** (snapshot mode, §12.5), so it can be
+  checked without clicking.
+- **The app explains itself:** a help mode explains every control and object; the About page
+  explains the gestures.
+- **One source of truth:** `ViewState`. The 3D scene entity is never rotated; all rotation lives in
+  R.
+- **Native and self-contained:** Swift, SwiftUI and RealityKit, no third-party code, English, open
+  source under Apache 2.0.
 
-Rotation, projection and display therefore work the same for every object. Controls that make no
-sense for an object, such as cells for the Klein bottle, are disabled.
+## 3. Objects
 
-There are three kinds of objects, each with one generic generator:
+**Every object becomes one data model, a complex in ℝ⁴, centred and scaled to radius 1, so that
+rotation, projection and display work the same for all of them.** A complex has vertices (points in
+ℝ⁴), edges (polylines), faces (polygons) and cells (closed groups of faces, polytopes only).
+Controls that make no sense for an object are disabled or hidden, such as explode for the Klein
+bottle.
 
-| Kind | Generator | Input | Examples |
-|---|---|---|---|
-| Convex polytopes | vertices + facet normals → full complex | vertex coordinates, directions of the boundary cells | 5-, 8- (tesseract), 16-, 24-, 120-, 600-cell; duoprisms p×q |
-| Surfaces in 4D | parametric surface f(u,v) → triangle grid | formula, parameter range | Klein bottle, Clifford torus |
-| Curve families | parametric curves → polylines | formula, choice of curves | Hopf fibration |
+| Kind | Objects | Made from |
+|---|---|---|
+| Convex polytopes | 5-cell, tesseract (8-cell), 16-cell, 24-cell, 120-cell, 600-cell, duoprism p×q (p, q = 3…24, default 3×4) | vertices and facet normals; edges, faces and cells are derived (§10.5) |
+| Surfaces | Klein bottle, Clifford torus | a parametric surface f(u, v) as a triangle grid (§10.6) |
+| Curves | Hopf fibration | 48 great circles of S³ as closed polylines (§10.6) |
 
-The polytope generator needs only vertices and normals. It derives edges, faces and cells itself
-(6.6). This gives three simplifications:
-- Duoprisms, the product of a p-gon and a q-gon, come almost for free.
-- The tesseract is the 4×4 duoprism.
-- The duocylinder is the limit for large p and q.
+The tesseract is also the 4×4 duoprism, turned by 45°, and the duocylinder is the duoprism's limit
+for large p and q.
 
-All objects are centred and scaled to circumradius 1.
+## 4. Motion
 
-### 3.2 Rotation
+**The object has an orientation R, a 4×4 rotation, and an angular velocity Ω, six numbers, one per
+rotation plane. Everything that moves the object changes one of the two.**
 
-- 4D has **6 rotation planes**:
-  - XY, XZ and YZ are the familiar 3D rotations. They only turn the shadow rigidly.
-  - XW, YW and ZW are the genuinely four-dimensional rotations. They deform the shadow.
-- The state consists of the orientation **R** (a 4×4 rotation matrix) and the angular velocity
-  **Ω** (six numbers, one per plane).
-- **There is only one source of motion.** Auto-rotation and gestures are the same thing:
-  - A preset sets Ω.
-  - Throwing the object with a hand sets Ω.
-  - Grabbing it stops it ("catching").
-  - The Stop button sets Ω to zero.
-  - The **friction** control damps Ω. The default is off, so the object keeps rotating forever.
-- **Motion presets:**
-  - *Simple:* XW
-  - *Double:* XY + ZW at different speeds
-  - *Isoclinic:* XY + ZW at the same speed (Clifford rotation, which has no 3D equivalent)
-  - *Drift:* all 6 planes, slow and at different speeds
-- **Reset** sets R back to the start orientation: a pure 3D tilt (35° in XZ, then 25° in YZ), so
-  the tesseract in perspective shows its cube inside a cube, seen obliquely [D18].
-- All rotation planes refer to the user's view, not to the object.
-- The 3D entity in the scene is **never rotated itself**; all rotation lives in R. That keeps a
-  single source of truth, and it is correct because 3D rotations commute with the projection.
+- **Six rotation planes.** XY, XZ and YZ are the familiar 3D rotations; they only turn the shadow
+  rigidly. XW, YW and ZW are the genuinely four-dimensional ones; they deform it.
+- **One source of motion.** A motion preset sets Ω, a throw sets Ω, a grab stops it ("catching",
+  Ω = 0), *Stop* sets Ω = 0, and friction damps Ω (default 0: the object turns for ever). Dragging
+  turns R directly.
+- **Presets** (Ω in rad/s): *Simple* XW 0.6 · *Double* XY 0.25 and ZW 0.7 · *Isoclinic* XY and ZW
+  0.5 each, the Clifford rotation, which has no 3D counterpart · *Drift* all six planes slowly: XY
+  0.07, XZ 0.11, YZ 0.05, XW 0.17, YW 0.13, ZW 0.19. One slider per plane sets its speed, ±2 rad/s.
+- **Start orientation:** a pure 3D tilt, 35° in XZ, then 25° in YZ, so the tesseract starts as the
+  classic cube inside a cube, seen at an angle [D18]. *Reset* (Motion tab) and a double tap on the
+  object return to it.
+- **Rotations act in the viewer's frame,** not in the object's: R is always multiplied from the
+  left. The 3D scene entity is never rotated. That keeps a single source of truth, and it is
+  correct because 3D rotations commute with the projection along W.
 
-### 3.3 Projection: two controls instead of three modes
+## 5. Projection
 
-Orthographic, perspective and stereographic projection are not different methods. They are
-points in a space with two parameters:
+**Orthographic, perspective and stereographic projection are not three methods but three points in
+a plane of two controls, κ and s [D9].** You can morph between them continuously.
 
-- **Perspective strength κ** ("kappa", the reciprocal of the eye distance along W):
-  `p = (x, y, z) / (1 − κ·w)`
-  - κ = 0 gives the orthographic projection: W is simply dropped.
-  - κ ≈ 0.6 gives the classic perspective ("cube within a cube").
-  - Points with w = 0 stay in place for every κ, so the image does not jump.
-- **Spherize s:** each point is blended between its flat position and its position on the
-  3-sphere. s = 0 is the flat polytope, s = 1 the "inflated" one.
-- **Stereographic is simply (κ = 1, s = 1).** Edges become circular arcs, and the 120-cell turns
-  into the well-known soap-bubble picture.
-- The UI offers the three classics as presets: *Orthographic* (0, 0), *Perspective* (0.6, 0),
-  *Stereographic* (1, 1). You can morph continuously between them, which none of the existing apps
-  can do.
-- Parts at or behind the eye (1 − κw near 0) and parts extremely far away are dropped (6.3).
+- **Perspective strength κ** (kappa, the reciprocal of the 4D eye's distance along W):
+  `p = (x, y, z) / (1 − κ·w)`. κ = 0 simply drops W (orthographic: the sun of §1); κ ≈ 0.6 gives
+  the classic cube inside a cube (the lamp). Points with w = 0 stay in place for every κ, so the
+  picture does not jump.
+- **Spherize s** blends each point between its flat position and its position on the 3-sphere:
+  s = 0 is the flat polytope, s = 1 the inflated one.
+- **Stereographic projection is simply κ = 1, s = 1.** Edges become circular arcs, and the 120-cell
+  becomes the familiar soap-bubble picture.
+- **Presets:** *Orthographic* (κ 0, s 0), *Perspective* (0.6, 0), *Stereographic* (1, 1). A preset
+  is highlighted while the values match it exactly.
+- Parts at or behind the 4D eye, and parts flung very far out, are dropped (§10.3).
 
-*Scope note:* A slice by a hyperplane, as in 4D Toys, is not a projection. It creates new
-geometry, so it is not part of v1. The "Project" stage is encapsulated so that slicing can be added
-later.
+A slice through a hyperplane, as in *4D Toys* and in Flatland, is not a projection: it creates new
+geometry. It is a later idea (§14.4).
 
-### 3.4 Display: layers instead of modes
+## 6. Display
 
-"Wireframe", "solid" and "transparent with wireframe" are combinations of independent layers:
+**What you see is a stack of independent layers; the display presets only set some of them [D10].**
+
+### 6.1 Layers
 
 | Layer | Controls |
 |---|---|
-| Edges | visible, thickness, colour (same as faces, or plain light) |
-| Faces | opacity 0–100 %, colour source, style *matte/glossy* or *glowing* |
-| Cells (polytopes only) | explode 0–40 %: each cell shrinks towards its centre |
-| Axes [D20] | on/off: the object's four 4D axes x, y, z, w, rotated and projected with it |
-| Surface [D24, experimental] | material (matte, glossy, glowing, metal, ceramic, frosted glass), image pattern (grid, marble, wood), face thickness |
+| Edges | visible; thickness; colour: same as the faces, or plain light |
+| Faces | opacity 0–100 %; colour source; material; image pattern; thickness (§6.3) |
+| Cells (polytopes) | explode 0–40 %: every cell shrinks towards its centre and becomes a body of its own |
+| Axes | visible: the four 4D axes, rotated and projected with the object (§6.4) |
+| Floor shadow | visible: the shadow of the shadow on a disc below the object (§6.4) |
+| Size | a factor 0.25–4 on top of the automatic size (§6.5) |
 
-**Display presets:**
-- *Wireframe:* edges on, faces 0 %
-- *Glass:* edges on, faces 25 %, glowing
-- *Solid:* faces 100 %, thin edges
-- *Cells:* explode 20 %, faces 100 %, colour per cell
+Transparent volumes need no mechanism of their own. A cell is drawn by its boundary faces; with
+explode above 0, every cell is a glass body of its own, and its transparency is the face opacity.
 
-**Transparent volumes need no mechanism of their own.** A cell is drawn by its boundary faces.
-With explode above 0, each cell is a separate glass body whose transparency is set by the face
-opacity.
+### 6.2 Presets
 
-**Colour source** (one choice for the whole object):
-- *uniform*
-- *by W* (blue ↔ red): shows what lies "in front" in 4D. This is the single most helpful aid to
-  understanding.
-- *per cell* (palette): every face belongs to **two** cells, so this source automatically applies
-  a small minimum explode of 5 %. Then each cell has its own faces.
-- *surface parameter:* checkerboard in (u, v), for parametric surfaces
-- *per fibre:* for the Hopf fibration
+| Preset | Sets |
+|---|---|
+| *Wireframe* | edges on, thickness 0.012, faces 0 % |
+| *Glass* (default) | edges on, thickness 0.012, faces 25 %, glowing |
+| *Solid* | edges on, thickness 0.005, faces 100 %, matte if glowing |
+| *Cells* (polytopes) | edges on, thickness 0.005, faces 100 %, explode 20 %, colour per cell, matte if glowing |
 
-Technically all colour sources go through the same path: a texture coordinate plus a small
-texture (6.5). Image textures per cell (wood, glass, digits) can be added later without
-restructuring.
+Leaving *Cells* for another preset also sets explode back to 0 and the colour to *by W*, so the
+other presets do not look exploded [D13]. A preset is highlighted while the settings match it.
 
-### 3.5 Scene
+### 6.3 Faces: colour, material, pattern, thickness
 
-- **v1: volumetric window.** A box in space that can be placed freely and resized: 1 m by default,
-  at least 0.5 m; the content follows the size [D19].
-- **Automatic size [D15]:** every object is scaled so that the radius holding 90 % of its projected
-  vertices fills 75 % of the box's smallest side. The radius is measured over 32 fixed orientations,
-  so it depends only on the object, κ and s and does not pump while the object rotates. The few
-  vertices that fly far out in the stereographic view do not shrink the rest. The user's *Size*
-  control (and the two-hand pinch) is a factor on top. Edge thickness is relative to the fitted
-  radius, so tubes keep their size in metres.
-- **Shadow of the shadow:** a light from above casts the shadow of the 3D projection onto a subtle
-  virtual floor disc in the box. That shows 4D → 3D → 2D in one scene.
-- **Immersive space: prepared in v1, completed later [D5]:**
-  - The content (root entity plus system) does not depend on the scene that hosts it. The
-    volumetric window and an `ImmersiveSpace` (mixed immersion) host *the same* content and share
-    one `ViewState`.
-  - v1 declares the `ImmersiveSpace` and opens it from an "Open in room" button on the Display
-    tab [D37]. It shows the content at room scale (about 2 m), level in front of the viewer [D36],
-    with the same controls and no extra features.
-  - Everything that differs by host goes through one `SceneHost` value: bounds, and what the host
-    knows about the viewer. Later additions slot in there without restructuring: head pose for
-    transparency sorting via ARKit world tracking, hand tracking, and placing the content on real
-    surfaces.
-- **Where the viewer is [D17]:** a volumetric window gets no head pose [verify]. It only learns
-  which side of the volume the viewer is on (front, right, back, left) from
-  `onVolumeViewpointChange`; that side is the sort direction of the *sorted* transparency method.
-  In the immersive space, ARKit world tracking can give the exact head pose (next step, not yet
-  connected).
+- **Colour source**, one for the whole object; the menu offers only those that fit it:
+  - *Uniform:* light blue.
+  - *By W* (default): blue at w = −1 to red at w = +1. It shows what lies "in front" in 4D and is
+    the most helpful single aid to understanding.
+  - *Per cell* (polytopes): 12 colours, repeating. Every face belongs to two cells, so this source
+    forces an explode of at least 5 %; then every cell has faces of its own [D10].
+  - *Surface parameter* (surfaces): a 12 × 6 checkerboard in (u, v). It shows the Klein bottle's
+    seam flip.
+  - *Per fibre* (Hopf fibration): one hue per circle.
+- **Material:** matte, glossy, glowing (unlit; the default), metal, ceramic or frosted glass [D24].
+  Edges use the same material.
+- **Image pattern:** none, grid, marble or wood. Patterns are drawn in code and fixed in 4D on each
+  face, so they show the projection's distortion. A pattern *replaces* the colour source on the
+  faces; the edges keep it [D24].
+- **Thickness:** faces become slabs, up to 3 cm in the volume. Their rims stay open; edges at least
+  half as thick cover them.
+- Choosing a material, a pattern or a thickness makes hidden faces visible: an opacity below 5 %
+  becomes 100 %; frosted glass gets 50 % instead, also when its opacity is above 90 %.
 
-### 3.6 Interaction
+### 6.4 Axes and floor shadow
 
-**Principle: every gesture has an equivalent in the control panel.** This is needed for the
-simulator, for precision and for accessibility.
+- **Axes** [D20]: the object's four axes, from −eᵢ to +eᵢ, rotated and projected like its points:
+  x red, y green, z blue, w yellow, each labelled at its + end. The w axis starts as a point,
+  because it is the direction projected away, and grows as the object turns into W.
+- **Floor shadow:** a light from above throws the shadow of the 3D shadow onto a matt white disc
+  below the object: 4D → 3D → 2D in one picture. In the room the disc is also the handle that
+  moves the object (§7.2).
 
-The control panel is a window of its own, opened left of the volume, which the user can move
-[D25]; help and About open in a second window, the *Info* panel, below the controls wherever they
-are [D40]. The panel is at most two levels deep [D35 tried movable ornaments instead and was
-reverted, D38]:
-- **Object:** grouped by kind; p and q for duoprisms
-- **Projection:** 3 presets plus the κ and s sliders
-- **Display:** 4 presets plus the layer controls from 3.4, and "Open in room" [D37]
-- **Surface** [D24]: material, pattern, thickness
-- **Motion:** 4 presets, friction, Stop, Reset, and 6 sliders (speed per plane)
-- **Developer** (collapsed): transparency method (S1), performance overlay (S2), gesture test (S3),
-  floor shadow method (S4), drag mapping, freeze time
-- Next to the tabs [D22]: **?** (help mode: tap any control to have it explained), **About**
-  (version, author, usage guide) and **Reset all** (tap twice)
+### 6.5 Size
 
-**Gestures [D3]:** variant A is built first; it uses only standard visionOS gestures:
+**Every object fills its space by itself; *Size* is a factor on top, and lines keep their thickness
+in metres.**
+- **Automatic size** [D15]: the radius that holds 90 % of the projected vertices fills 75 % of the
+  smallest side of the volume or the room's box. It is measured over 32 fixed orientations, so it
+  depends only on the object, κ and s and does not pump while the object turns. The few vertices
+  that the stereographic projection flings far out do not shrink the rest.
+- **Size factor** 0.25–4, also by pinching with two hands. Above 1 the object rises, so that its
+  lower part does not sink into the floor disc [D21]; its top is then cut by the volume (after the
+  clipping margins), and to see more you make the window bigger.
+- **Thickness is metric** [D28]: edges and faces keep their thickness in metres when you zoom or
+  resize the window. In the room they are twice as thick (§10.8).
+
+## 7. Places: the volume and the room
+
+**The same content runs in two places that differ only in a small `SceneHost` value (§9.3): a
+volumetric window that shares the space with other apps, and the room, where the object stands at
+room size.**
+
+### 7.1 The volume
+
+- A 1 m box by default, resizable by its corners, at least 0.5 m per side; the content follows its
+  measured size [D19]. visionOS restores the size between launches.
+- It requests clipping margins of 0.5 m on every side, so large shadows reach out of the box
+  instead of being cut at its walls; the system may grant less [D27].
+- It does not know where the viewer's head is, only which side of the volume they are on: front,
+  right, back or left. That side is the sort direction for transparency [D17].
+- While the room is open, the volume stays empty.
+
+### 7.2 The room
+
+- *Open in room* on the Display tab opens an immersive space with mixed immersion; other apps'
+  windows are hidden meanwhile [D37]. The same button closes it, and the object returns to the
+  volume.
+- The content is placed once, when the room opens: centred 2 m in front of the viewer and 15 cm
+  below eye level, in a 2.4 × 2 × 2.4 m box, so the object is about 1.5 m across and the disc about
+  1 m below eye level [D30].
+- It stands level, even if the head was tilted at that moment: it takes only the head's position
+  and heading from ARKit world tracking, without pitch and roll [D36].
+- Pinch the disc and drag to move the object through the room; it stays level. Grabbing the object
+  itself turns it, as in the volume [D39].
+- The Controls stay in their window.
+
+## 8. Interaction
+
+**You act on the object with standard hand gestures and on everything with the control panel; a
+help mode explains every control.**
+
+### 8.1 Gestures
+
+The gestures are standard visionOS gestures (variant A) [D3]:
 
 | Gesture | Effect |
 |---|---|
-| Pinch + drag (one hand) | 4D rotation: the drag direction tips towards W. Right/left → XW, up/down → YW, forward/back → ZW, diagonal → a mix |
-| Two hands pinch and twist | 3D rotation |
-| Two hands apart/together | scale |
-| Release with momentum | throw: the rotation continues |
-| Pinch and hold | catch: the rotation stops |
-| Double tap | reset orientation |
+| Pinch and drag (one hand) | turn in 4D: the drag direction tips towards W. Right/left → XW, up/down → YW, towards/away → ZW, diagonal → a mix; 10 rad per metre [D26] |
+| Let go while moving | throw: the object keeps turning |
+| Pinch (grab) | catch: the rotation stops |
+| Two hands, twist | turn in 3D |
+| Two hands, apart or together | size |
+| Double tap | back to the start orientation |
+| Room: pinch the disc and drag | move the object through the room |
 
-Variant C is tested in spike S3 and not shipped yet. In it, one hand does everything: turning the
-wrist rotates in 3D and moving the hand rotates in 4D, via `ManipulationComponent` events [verify].
+The object reacts anywhere in the volume, also when it is small or enlarged [D32]. Variant C, in
+which one hand does everything (turning the wrist rotates in 3D, moving the hand in 4D), is only
+probed in the Developer tab (spike S3, §12.6).
 
-## 4. Scope and milestones [D4]
+### 8.2 Windows
 
-| Milestone | Content |
+**There are three windows, the volume, *Controls* and *Info*, and each can be moved on its own.**
+- *Controls* opens left of the volume when the volume appears [D25]. *Info* (help and About, 620 ×
+  820 pt, resizable) opens below the Controls, wherever the user has put them [D40].
+- Neither panel opens by itself at launch or is restored by visionOS. A window that appears in
+  front of the volume makes visionOS push the volume back and dim it, and a panel below the volume
+  hides the volume's window bar [D23, D25].
+- Closing the volume or the Controls ends the app; the other windows and the room close themselves
+  [D34]. Closing Info only ends help.
+- The panels are windows, not ornaments, because only windows can be moved apart from the volume
+  and turn towards the viewer [D38].
+
+### 8.3 Control panel
+
+The Controls window is 1060 pt wide; its height follows the tab. A row of tabs sits on top, and
+beside the tabs three buttons: **?** (help mode, §8.4), **About**, and **Reset all**. *Reset all*
+needs a second tap within 3 s; it resets every setting, including the Developer ones and the drag
+mapping, but keeps the tab, help and the room [D22].
+
+| Tab | Controls |
 |---|---|
-| **M0** Setup + spikes | XcodeGen project, Core4D package, licence files, technical spikes S1–S4 (6.9) |
-| **M1** Core | Core4D: complex, generators for the 5-, 8-, 16- and 24-cell, rotation, projection, all tested |
-| **M2** First image | window with edges and faces, object and projection choice, motion presets, basic control panel |
-| **M3** Display | all layers, presets, colour sources, explode, floor shadow |
-| **M4** Gestures | variant A, throw and catch, gesture test scene for variant C |
-| **M5** Large polytopes | 120- and 600-cell, duoprisms, smooth stereographic display, performance |
-| **M6** Surfaces and curves | Klein bottle, Clifford torus, Hopf fibration |
+| Object | one row per kind (polytopes, surfaces, curves); steppers for the duoprism's p and q |
+| Projection | 3 presets; sliders κ and s (0–1) |
+| Display | 4 presets; edges on/off and edge colour; floor shadow; axes; edge thickness; face opacity; colour source; explode (polytopes); size; *Open in room* |
+| Surface | material (6); pattern (4); face thickness (0–0.08). Disabled for curves |
+| Motion | 4 presets; Stop; Reset; friction (0–2 /s); one speed slider per plane (±2 rad/s) |
+| Developer | transparency method (S1); floor-shadow method (S4); drag gain k (2–18 rad/m) and invert; performance overlay (S2); gesture test (S3); freeze time; fine subdivision (S2 stress test); the viewer's side; ignored launch arguments |
 
-The app is usable from M2 on. Each further milestone is useful on its own.
+Choices are rows of buttons, not segmented pickers: on the device a segmented picker did not react
+to taps (§13.2).
 
-**Deliberately not in v1** (later candidates, roughly by value):
-- completing the immersive space beyond what 3.5 prepares
-- slice mode
-- image textures and cell numbers
-- orientation presets (cell first, vertex first)
-- trails of individual vertices
-- shadows on real surfaces
-- the Lawson Klein bottle on S³
-- further uniform polytopes
-- saving scenes
-- a Flatland analogy
+### 8.4 Help
+
+**The app explains itself: in help mode a tap on a control explains it in Info instead of using it
+[D22].**
+- **?** turns help mode on and shows the current tab's overview. A dashed outline marks everything
+  that can be explained, disabled controls included. Closing Info ends help mode.
+- A tap shows the control's topic. Taps that only change what is shown, on a tab or an object,
+  also take effect, so explaining an object shows it in the volume, the best picture of it.
+- **About** shows the version, date, author and licence and a short guide: moving, resizing and
+  closing the windows, turning in 4D and 3D, throwing and catching, size, back to the start, help.
+- There are 56 topics: About, one overview per tab, one per object and one per control (a few
+  controls share one).
 
 ---
 
-# Part B: Technical design
+# Part B: How it is built
 
-## 5. Platform and environment
+## 9. Architecture
 
-- **Native visionOS app:** Swift, SwiftUI, RealityKit. No third-party libraries. XcodeGen is the
-  only extra tool and is used only to generate the project [D6].
-- **Deployment target:** visionOS 27.0 [D7]. Core4D additionally supports macOS 27, so its tests
-  run on the Mac.
-- **Language:** everything in English, including UI, code, comments and docs [D8]. UI strings still
-  go through a String Catalog, so the app can be localised later.
-- **Environment (verified 2026-11-08):** see section 8.
-- **Signing:** a free Apple ID (Personal Team) for now; an install lasts 7 days. The team ID and the
-  real bundle ID live **only** in `Config/Signing.local.xcconfig`. That file is git-ignored and
-  created by the user (6.1).
-- **Licence:** Apache 2.0, © 2026 Andreas Keese (`LICENSE`, `NOTICE`) [D8].
+**A pure, tested maths package computes everything; the app holds the state, turns it into meshes
+and shows them with RealityKit.**
 
-## 6. Technical design
-
-### 6.1 Project layout and project generation
+### 9.1 Modules and data flow
 
 ```
-visionpro_shadow43/
-├── DESIGN.md                   this document (single source of truth)
-├── CLAUDE.md                   working rules for Claude
-├── NIGHT_RUN.md                plan for the unattended implementation run
-├── README.md, LICENSE, NOTICE
-├── setup/claude-settings.json  Claude Code permissions; the user copies it to .claude/settings.json
-├── project.yml                 XcodeGen spec; Shadow43.xcodeproj is generated (git-ignored)
-├── Config/
-│   ├── Shared.xcconfig         committed; placeholder bundle ID; optional include of the local file
-│   └── Signing.local.xcconfig  NOT committed; DEVELOPMENT_TEAM, real PRODUCT_BUNDLE_IDENTIFIER
-├── Shadow43/                   app target
-│   ├── App/                    App, scenes, ViewState, SceneHost
-│   ├── UI/                     control panel
-│   ├── Rendering/              mesh building, materials, RealityKit system
-│   ├── Input/                  gestures → rotations
-│   ├── Debug/                  spikes, performance overlay, launch-argument snapshot mode
-│   └── Resources/              String Catalog, small textures
-└── Packages/Core4D/            local Swift package: Foundation + simd ONLY
-    ├── Package.swift
-    ├── Sources/Core4D/         Complex, Generators, Rotation, Projection, Tessellation
-    └── Tests/Core4DTests/      Swift Testing
+            Core4D: Foundation + simd only, tested                     App: SwiftUI, RealityKit
+ObjectID ─► Complex4D ─► RenderMesh4D ─────► FrameBuilder ──────────► DynamicMesh ─► entities
+            once per     when the object,    when R or a parameter     (LowLevelMesh)
+            object       explode or the      changed: positions,
+                         subdivision change  normals, uv, indices
+ViewState ◄── presets · launch arguments · saved settings · panel · gestures          (AppModel)
 ```
 
-**Verified template** (built successfully on 2026-11-08 with Xcode 27.1 and XcodeGen 2.46.0):
+- **Core4D** is a local Swift package that imports only Foundation and simd; every public function
+  is tested. It holds Complex4D and the generators, Rotation4D, Projection4D, Tessellation
+  (RenderMesh4D), FrameBuilder, ViewState and the presets, LaunchConfiguration, SavedSettings,
+  GestureMapping, SizeFit, AxisCross and LevelPose.
+- **The app** holds AppModel, the scenes and windows, the control panel and help, the renderer with
+  its RealityKit `System`, the gestures and the debug tools.
+- **Complex4D** is the exact combinatorics: vertices; edges as polylines (two indices for
+  polytopes); faces with their vertices in cyclic order and, for polytopes, their two cells; cells
+  with their faces and centre; (u, v) per point for surfaces; a key per curve.
+- **RenderMesh4D** is the render-ready, static geometry: face points and edge points, each flat and
+  on S³ (`p/|p|`, after explode); a colour key and pattern coordinates per point; triangles;
+  polylines; ranges per polygon and per cell.
+- **FrameBuilder** turns a RenderMesh4D and the frame's parameters into vertex and index arrays. Its
+  buffers are sized once, for the largest case.
+- Complex4D, R and Ω use Double; RenderMesh4D and the per-frame work use Float.
 
-```yaml
-# project.yml
-name: Shadow43
-options:
-  deploymentTarget:
-    visionOS: "27.0"
-packages:
-  Core4D:
-    path: Packages/Core4D
-targets:
-  Shadow43:
-    type: application
-    platform: visionOS
-    sources: [Shadow43]
-    configFiles:
-      Debug: Config/Shared.xcconfig
-      Release: Config/Shared.xcconfig
-    dependencies:
-      - package: Core4D
-    info:
-      path: Shadow43/Info.plist
-      properties:
-        CFBundleDisplayName: Shadow43
-        UIApplicationSceneManifest:
-          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleVolumetricApplication
-          UIApplicationSupportsMultipleScenes: true
-          UISceneConfigurations: {}
-    settings:
-      base:
-        SWIFT_VERSION: "6.0"
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        CODE_SIGN_STYLE: Automatic
+### 9.2 State
+
+**`ViewState` is the single source of truth for what is shown; everything that sets it only
+assigns parts of it.**
+
+| Stage | Field | Default | Range |
+|---|---|---|---|
+| Object | object; duoprism p, q | tesseract; 3, 4 | 10 objects; 3…24 |
+| Projection | κ, s | 0.6, 0 (Perspective) | 0…1 |
+| Display | edges; edge thickness; edge colour | on; 0.012; same as faces | 0.002…0.04 |
+| | face opacity; colour source; material | 25 %; by W; glowing | 0…1 |
+| | explode; pattern; face thickness | 0; none; 0 | 0…0.4; –; 0…0.08 |
+| | floor shadow; axes | on; off | |
+| Motion | Ω; friction | Simple; 0 | sliders ±2 rad/s; 0…2 /s |
+| Orientation | R | start tilt (§4) | |
+| Size | scale | 1 | 0.25…4 |
+| Developer | transparency; floor-shadow method; overlay, gesture test, freeze time, fine subdivision | additive; light; all off | |
+
+- Ranges are enforced where values enter: launch arguments, saved settings, sliders and gestures.
+- *Effective* values are derived, never stored: explode is 0 for anything but polytopes and at
+  least 5 % with per-cell colour; a colour source that does not fit the object falls back to
+  uniform; the transparency method falls back as described in §11.5.
+- **Partial assignments:** a preset sets a few fields (§4–6), launch arguments set fields one by one
+  (§12.5), saved settings restore every stage except R (§9.4), and *Reset all* assigns the
+  defaults.
+- **AppModel** (`@Observable`, shared by every scene) holds the ViewState and the app's own state:
+  the drag mapping (k and sign), the tab, help mode and topic, whether the room is open, whether
+  the app is closing, the viewer's side, launch problems, and whether settings are saved. Its
+  `tick` advances the motion once per frame for all hosts (§10.2).
+
+### 9.3 Hosts and the entity tree
+
+**Scene content depends only on a `SceneHost` value, never on the scene that hosts it.**
+
+| | Volume | Room |
+|---|---|---|
+| bounds (m) | the measured window size, default 1 × 1 × 1 | 2.4 × 2 × 2.4 |
+| content offset (m) | 0 | (0, −0.15, −2) from the viewer's level pose |
+| thickness reference side (m) | 1 | 2 |
+| sort direction | the viewer's side of the volume | +z, towards where the viewer stood when the room opened |
+
+In both, the floor disc lies 0.45 × the height below the content centre.
+
+The volume's entity tree:
+
+```
+ShadowRoot (ShadowComponent; never rotated)
+└─ Stage (disabled while the room is open)
+   ├─ Content (scaled to metres, lifted, §6.5) ─ Faces, Edges, CellEntities
+   ├─ FloorShadow ─ FloorDisc, FloorLight
+   ├─ Axes (lifted)
+   ├─ InputTarget (collision sphere, §11.8)
+   └─ ManipulationProbe (spike S3)
 ```
 
-```
-// Config/Shared.xcconfig
-PRODUCT_BUNDLE_IDENTIFIER = com.example.shadow43
-#include? "Signing.local.xcconfig"
-```
+In the room, `RoomLevel` (the head's position and heading, §10.9) holds `RoomBase`, which holds the
+same `ShadowRoot` (its FloorShadow keeps only the light) and, beside it, the `FloorDisc` as handle.
+Every frame the root is placed above the disc, and both are kept upright [D39]. Without world
+tracking the room hangs under a head anchor placed once, which keeps the head's tilt.
 
-```swift
-// Packages/Core4D/Package.swift
-// swift-tools-version: 6.4
-import PackageDescription
-let package = Package(
-    name: "Core4D",
-    platforms: [.macOS(.v27), .visionOS(.v27)],
-    products: [.library(name: "Core4D", targets: ["Core4D"])],
-    targets: [
-        .target(name: "Core4D"),
-        .testTarget(name: "Core4DTests", dependencies: ["Core4D"]),
-    ]
-)
-```
+### 9.4 Settings and start modes
 
-Pitfall: `App.body` must be declared as `some SwiftUI.Scene`. RealityKit also defines `Scene`, and
-the unqualified name does not compile.
+**The app starts in one of two modes: normally with the saved settings, or in snapshot mode with
+the defaults and the launch arguments [D29].**
+- **Normal start:** load `SavedSettings` from the user defaults (key `savedSettings`, JSON). Save
+  0.5 s after the last change, and at once when the volume leaves the foreground.
+- **Snapshot mode:** any recognised launch argument (§12.5), even one with an invalid value. The
+  app starts from the defaults, applies the arguments and saves nothing, so snapshots are
+  reproducible.
+- **Saved:** every ViewState stage except the orientation R, including Ω (a throw resumes) and the
+  Developer settings, plus the drag mapping. **Not saved:** R, which always starts at the start
+  tilt; the tab; help; the room; the `-viewpoint` override.
+- Each part decodes on its own and falls back to its default, so an update that changes one stage
+  keeps the others. Numbers are clamped to their ranges (Ω is not).
 
-### 6.2 Data model (sketch; names are suggestions)
+## 10. Mathematics
 
-```swift
-/// Exact combinatorics, built once per object.
-struct Complex4D {
-    var vertices: [SIMD4<Double>]   // centred, circumradius 1
-    var edges: [[Int]]              // polylines; 2 indices each for polytopes
-    var faces: [Face]               // polygons, vertices in cyclic order
-    var cells: [Cell]               // polytopes only, otherwise empty
-    var uv: [SIMD2<Double>]?        // parametric surfaces only
-    var curveKey: [Double]?         // curve families only (base point of the fibre)
-    var kind: ObjectKind            // .polytope, .surface, .curves
-}
-struct Face { var vertices: [Int]; var cells: [Int] }        // polytope: exactly 2 cells
-struct Cell { var faces: [Int]; var center: SIMD4<Double> }
+### 10.1 Conventions
 
-/// Render-ready and static. Rebuilt only when the object, explode or subdivision changes.
-struct RenderMesh4D {
-    var flat:   [SIMD4<Float>]      // points after explode and subdivision
-    var sphere: [SIMD4<Float>]      // the same points, normalised onto S³
-    var colorKey: [Float]           // static colour key (cell, u/v, fibre)
-    var triangles: [UInt32]
-    var polylines: [[UInt32]]
-}
+- x points right, y up, z towards the viewer (RealityKit's convention); w is the fourth axis. The
+  projection is along w.
+- Rotations act in the world frame: they are multiplied **from the left**.
+- Objects are centred on their vertex centroid and scaled to circumradius 1.
 
-/// Single source of truth for what is shown (@Observable in the app, shared by all scenes).
-struct ViewState {
-    var objectID: ObjectID
-    var projection: Projection          // kappa, spherize
-    var display: DisplaySettings        // layers, colour source, explode, style
-    var motion: Motion                  // R (4×4 Double), omega (6), friction
-    var scale: Double
-}
+### 10.2 Rotation
 
-/// What differs between the volumetric window and the immersive space.
-struct SceneHost {
-    var bounds: SIMD3<Float>            // metres; the object fills 75 % of the smallest side (D15)
-    var viewerPose: ViewerPoseProvider? // nil in the window; ARKit later in the immersive space
-    var tracksVolumeViewpoint: Bool     // window: the viewer's side of the volume (D17)
-}
-```
-
-Presets are named partial assignments of `ViewState`. `ViewState` is `Codable`, which serves
-launch arguments, snapshots and saving scenes later.
-
-### 6.3 Per-frame pipeline (RealityKit `System`, every frame)
-
-1. `R ← orthonormalize(step(Ω, Δt) · R)`, then `Ω ← Ω · exp(−friction · Δt)`
-2. For each point:
-   - `p4 = R · lerp(flat, sphere, s)`
-   - `p3 = p4.xyz / (1 − κ · p4.w)`
-3. Cull triangles and segments that have a point with `1 − κw < ε` (e.g. 0.02) or
-   `|p3| > R_max` (e.g. 4 × the box size).
-4. Recompute face normals. Build edges as tubes along the polylines: 6 sides, frames by parallel
-   transport.
-5. Colour key → UV. For "by W", `u = (w + 1) / 2` every frame; otherwise static.
-6. Write the buffers into `LowLevelMesh`.
-
-- If Ω = 0 and no parameter has changed, nothing is recomputed.
-- **Budget:** 90 Hz, so under about 3 ms of CPU per frame for the 120-cell on the device. Implement
-  on the CPU with SIMD first and measure. Use Metal compute only if the budget is exceeded, and
-  ask the user first.
-
-### 6.4 Mathematical reference
-
-- **Coordinates:** x right, y up, z towards the viewer (RealityKit convention), w is the fourth
-  axis. Projection is along w.
-- **Rotation in one plane** by angle θ, spanned by unit vectors a and b (positive θ turns a towards
-  b):
+- Rotation in the plane of the unit vectors a and b by θ (a positive θ turns a towards b):
   `G(a, b, θ) = I + (cos θ − 1)(a aᵀ + b bᵀ) + sin θ (b aᵀ − a bᵀ)`
-- **Step:** `step(Ω, Δt) = Π G(e_i, e_j, ω_ij · Δt)` over the 6 planes. This approximation is enough
-  for small Δt. G(XY) and G(ZW) commute exactly.
-- **Orthonormalise:** Gram–Schmidt on R every frame, against rounding drift.
-- **World frame:** all rotations are multiplied **from the left**.
-- **Drag gesture** by vector Δ (scene coordinates, metres): an impulse `k·Δ` on `ω_xw, ω_yw, ω_zw`,
-  i.e. `R ← G(Δ̂, e_w, k·|Δ|) · R`. The starting value for k was 2π per 0.3 m; since D26 it is
-  2π per 0.6 m. k and the sign are adjustable in the Developer tab.
-  - Throw: Ω_xw, Ω_yw, Ω_zw from the velocity over the last 0.1 s.
-  - Catch: Ω = 0 when the gesture begins.
-- **3D rotation** from the two-hand gesture (quaternion q): `R ← diag(M(q), 1) · R`
-- **Projection:** `p = xyz / (1 − κw)`. Stereographic from the north pole (0, 0, 0, 1) is κ = 1 with
-  points on S³.
-- **Spherize:** `sphere = v / |v|`. Only boundary points are rendered, so |v| is never 0.
-- **Explode** by fraction e: `v' = c + (1 − e)(v − c)`, where c is the cell centre. It is applied
-  before spherizing.
-- **Subdivision:** edges into n segments; polygons as a fan around the centroid with m²
-  subdivision. Needed for smooth arcs when s > 0. Starting values n = 8, m = 3; smaller for large
-  polytopes.
+- Step: `step(Ω, Δt) = G_zw · G_yw · G_xw · G_yz · G_xz · G_xy`, each plane by ω·Δt. The
+  approximation is good enough for small Δt; G_xy and G_zw commute exactly.
+- Every frame: `R ← orthonormalize(step(Ω, Δt) · R)` (Gram–Schmidt on the columns, against
+  rounding drift), then `Ω ← Ω · e^(−friction·Δt)`; Ω becomes exactly 0 once every |ω| < 10⁻³.
+- Δt is wall-clock time, at most 0.1 s. Calls less than 2 ms apart are ignored, so the motion
+  advances once per frame however many hosts call. Nothing moves while time is frozen.
+- Start orientation: `R₀ = G_yz(25°) · G_xz(35°)`.
 
-### 6.5 Rendering
+### 10.3 From a 4D point to a 3D point
 
-- **Meshes:** `LowLevelMesh`, one entity each for faces and for edges, each with its own material.
-- **Material:** `PhysicallyBasedMaterial` (style matte/glossy) or `UnlitMaterial` (style glowing)
-  with a base-colour texture.
-  - The colour source is UV plus texture: gradient 256×1, palette N×1, checkerboard.
-  - Present in the SDK: `faceCulling`, `writesDepth`, `readsDepth`, and blend modes `.alpha` and
-    `.add` (via `Program.Descriptor`).
-- Faces are rendered **double-sided**. Closed cells and non-orientable surfaces need this. Every
-  triangle exists twice, as a front copy whose normal follows its winding and as a back copy with
-  reversed winding and negated normal; back-face culling keeps the copy that faces the camera, so
-  lit styles are correct from every side without knowing the viewer [D12, D16].
-- **Transparency is the main risk (spike S1).** Implement all three candidates behind the
-  Developer switch, so the user can compare them on the device:
-  1. **Additive** (`.add`, `writesDepth = false`): independent of order, no flicker, a "glowing
-     glass" look. This is the *glowing* style and probably the nicest Glass preset.
-  2. **Sorted:** sort triangles back to front every frame (the index list is rebuilt every frame
-     anyway). In the window the head pose is unknown, so sort towards the side of the volume the
-     viewer is on (D17); between the four sides the order is approximate. Later, in the immersive
-     space, sort by the real head pose.
-  3. **Per-cell entities** (only with explode > 0): RealityKit sorts entities itself. Within a
-     convex cell, draw the inner sides first, then the outer sides (`ModelSortGroupComponent`;
-     back copies and front copies as two entities, both with back-face culling).
-- **Edges as tubes:** RealityKit has no thick lines, so polylines are built as continuous tubes.
-- **Input:** the object entity gets an `InputTargetComponent` and a **static**
-  `CollisionComponent` (a sphere the size of the box), because the mesh changes all the time.
-- **Floor shadow:** `DirectionalLightComponent` with a shadow (`DynamicLightShadowComponent`) onto a
-  floor disc [verify: behaviour in a volume]. Fallback: `GroundingShadowComponent`.
-- The volume clips content at its edges. The R_max culling from 6.3 is still needed, against
-  numerical extremes.
+One map serves the mesh, the automatic size and the axes:
 
-### 6.6 Polytope generator (vertices + facet normals)
+1. **Spherize:** `v = flat + s · (sphere − flat)`, with `sphere = flat / |flat|`. Only boundary
+   points are drawn, so |flat| is never 0.
+2. **Rotate:** `r = R · v`.
+3. **Project:** `d = 1 − κ·r_w`, `p = r_xyz / d`. Stereographic projection from the north pole
+   (0, 0, 0, 1) is κ = 1 on S³.
+4. **Drop:** a point is invalid if `d < ε` (ε = 0.02: at or behind the eye) or `|p| > R_max`
+   (4 × the largest box side, in object units). Triangles and edge segments with an invalid point
+   are dropped. The axes are clamped instead (§10.9).
 
-**Algorithm** (works for every convex 4-polytope):
+### 10.4 Explode and subdivision
+
+- **Explode** by the fraction e: each cell gets its own copies of its faces and edges, moved
+  towards its centre c: `v' = c + (1 − e)(v − c)`. It is applied before spherizing.
+- **Subdivision** makes arcs smooth when s > 0. The projection maps lines to lines, so at s = 0
+  every edge stays one segment and every polygon a plain fan [D14]. Only polytopes are subdivided:
+  every edge into n segments, every polygon as a fan around its centroid with each fan triangle
+  split into m², so a k-gon has k·m² triangles.
+- **Levels** by the number of edges: under 200 → n = 8, m = 3; under 1000 → 6, 2; otherwise 5, 2.
+  So the 24-cell gets 8, 3, the 600-cell 6, 2 and the 120-cell 5, 2. The Developer switch *fine
+  subdivision* forces 8, 3 at any s, as a stress test.
+- Points are shared within a polygon but not between polygons, so shading is smooth inside a face
+  and crisp at its borders.
+
+### 10.5 Polytope generator
+
+**Every convex 4-polytope follows from its vertices and its facet normals:**
 1. Centre the vertices and scale them to circumradius 1.
-2. For each normal n, the cell's vertex set is `S_n = { i : v_i·n ≥ max_j(v_j·n) − ε }`.
-3. For each pair of cells (a, b): if `I = S_a ∩ S_b` has at least 3 elements and is affinely
-   2-dimensional, I is a face with cells (a, b). Order its vertices cyclically by angle around the
-   centroid in the face plane.
-4. Edges are the sides of the face polygons, without duplicates.
-5. A cell consists of its faces; its centre is the centroid of its vertices.
+2. For each normal n, the cell's vertex set is `S_n = { i : v_i·n ≥ max_j(v_j·n) − ε }`, with
+   ε = 10⁻⁶ · max(1, |n|).
+3. Two cells whose common vertices are at least 3 and span a plane (affine dimension 2, tolerance
+   10⁻⁴) share a face. Its vertices are ordered by angle around their centroid.
+4. The edges are the polygon sides without duplicates. A cell's centre is the centroid of its
+   vertices.
 
-**Inputs** (coordinates before normalisation):
+Inputs, before normalisation:
 
 | Object | Vertices | Normals |
 |---|---|---|
 | 5-cell | (1,1,1,−1/√5), (1,−1,−1,−1/√5), (−1,1,−1,−1/√5), (−1,−1,1,−1/√5), (0,0,0,4/√5) | −vertices |
-| Tesseract | (±1, ±1, ±1, ±1) | ±e_i |
+| Tesseract | (±1, ±1, ±1, ±1) | ±eᵢ |
 | 16-cell | permutations of (±1, 0, 0, 0) | (±1, ±1, ±1, ±1) |
-| 24-cell | permutations of (±1, ±1, 0, 0) | ±e_i and (±½, ±½, ±½, ±½) |
-| 600-cell | permutations of (±1,0,0,0); (±½,±½,±½,±½); **even** permutations of ½(±φ, ±1, ±1/φ, 0), φ = golden ratio | normalised cell centres, see below |
-| 120-cell | normalised cell centres of the 600-cell | vertices of the 600-cell |
+| 24-cell | permutations of (±1, ±1, 0, 0) | ±eᵢ and (±½, ±½, ±½, ±½) |
+| 600-cell | permutations of (±1,0,0,0); (±½,±½,±½,±½); **even** permutations of ½(±φ, ±1, ±1/φ, 0), φ the golden ratio | its normalised cell centres, see below |
+| 120-cell | the normalised cell centres of the 600-cell | the vertices of the 600-cell |
 | Duoprism p×q | (cos 2πi/p, sin 2πi/p, cos 2πj/q, sin 2πj/q) | (cos 2π(i+½)/p, sin 2π(i+½)/p, 0, 0) and (0, 0, cos 2π(j+½)/q, sin 2π(j+½)/q) |
 
-**Bootstrapping the 600- and 120-cell** (avoids a list of 600 coordinates):
-1. The edges of the 600-cell are the vertex pairs at minimal distance.
-2. Its cells (tetrahedra) are the 4-cliques in this edge graph.
-3. The normalised centroids of these cells give its normals and, at the same time, the vertices of
-   the 120-cell.
+**The 600-cell and 120-cell without a list of 600 points:** the 600-cell's edges are the vertex
+pairs at minimal distance (tolerance factor 1 + 10⁻⁶); its cells, tetrahedra, are the 4-cliques of
+this edge graph; their normalised centroids are its normals and, at the same time, the 120-cell's
+vertices. The f-vector tests (§12.4) guard all of this.
 
-The count checks in 6.8 guard all of this.
+### 10.6 Surfaces and curves
 
-### 6.7 Surfaces and curves
+- **Surfaces:** a grid of (n_u + 1)(n_v + 1) points, including the closing row. The seams are not
+  glued; their points exist twice. Each quad is two triangles, and grid points are shared, so
+  shading is smooth. The edges are every k-th grid line. (u, v) is kept for colour and patterns.
+- **Klein bottle in ℝ⁴**, without self-intersection:
+  `f(u, v) = ((R + r cos v) cos u, (R + r cos v) sin u, r sin v cos(u/2), r sin v sin(u/2))`,
+  u, v ∈ [0, 2π], R = 1, r = 0.5, divided by its largest radius 1.5. It satisfies
+  f(u + 2π, v) = f(u, −v). Grid 72 × 36; edges every 6th line.
+- **Clifford torus:** `(cos u, sin u, cos v, sin v) / √2`. Grid 64 × 64; edges every 8th line.
+- **Hopf fibration:** the fibre over the point (θ, φ) of S², θ being the polar angle, is
+  `t ↦ (cos(θ/2) cos t, cos(θ/2) sin t, sin(θ/2) cos(t + φ), sin(θ/2) sin(t + φ))`.
+  There are 3 latitudes, θ = 0.3π, 0.5π and 0.7π, with 16 base points each, φ = 2πj/16; they form
+  nested tori of linked circles. Each fibre is a closed polyline of 96 points; its colour key is
+  its index.
 
-- **Parametric surface:** grid n_u × n_v including the closing row. Gluing the edges is
-  unnecessary; duplicate seam points do not affect the display. UV is passed along; edges are
-  every k-th grid line.
-- **Klein bottle in ℝ⁴** (without self-intersection):
-  `f(u,v) = ((R + r cos v) cos u, (R + r cos v) sin u, r sin v cos(u/2), r sin v sin(u/2))` with
-  u, v ∈ [0, 2π], R = 1, r = 0.5, then normalised. It satisfies f(u + 2π, v) = f(u, −v).
-- **Clifford torus:** `(cos u, sin u, cos v, sin v) / √2`
-- **Hopf fibration:** the fibre over the point (θ, φ) of S² (θ is the polar angle) is
-  `t ↦ (cos(θ/2) cos t, cos(θ/2) sin t, sin(θ/2) cos(t + φ), sin(θ/2) sin(t + φ))` with t ∈ [0, 2π].
-  Initial choice: 3 latitude circles with 16 base points each. That gives nested tori made of
-  linked circles. The colour key is the base point.
+### 10.7 Gestures
 
-### 6.8 Tests (Core4D, `swift test`, Swift Testing)
+- **Drag** by Δ (metres, in the input target's space): `R ← G((Δ̂, 0), e_w, sign · k · |Δ|) · R`,
+  with k = 10 rad/m and sign ±1 from the Developer tab.
+- **Throw:** Ω_xw, Ω_yw, Ω_zw = sign · k · v, with v the drag velocity over the last 0.1 s; the
+  other planes are 0, and Ω is scaled down so that no |ω| exceeds 4 rad/s. A throw needs
+  |v| ≥ 0.05 m/s and no two-hand gesture running.
+- **Catch:** Ω = 0 when a drag or a twist begins.
+- **Twist** (two hands, quaternion q, applied in increments): `R ← diag(M(q), 1) · R`, with q
+  mirrored to (−x, y, −z, w) [verify].
+- **Magnify:** size = clamp(size at the start × magnification, 0.25, 4). It does not catch.
+- **Double tap:** R ← R₀.
+- While a two-hand gesture runs, drags are ignored.
 
-- **f-vectors** (vertices, edges, faces, cells):
+### 10.8 Size and thickness
 
-  | Object | f-vector |
-  |---|---|
-  | 5-cell | (5, 10, 10, 5) |
-  | Tesseract | (16, 32, 24, 8) |
-  | 16-cell | (8, 24, 32, 16) |
-  | 24-cell | (24, 96, 96, 24) |
-  | 600-cell | (120, 720, 1200, 600) |
-  | 120-cell | (600, 1200, 720, 120) |
-  | Duoprism p×q | (pq, 2pq, pq + p + q, p + q) |
+- **Fitted radius** r₉₀: the 90th percentile of |p| over 32 fixed orientations (each a product of
+  all six plane rotations with fixed pseudo-random angles) and at most 512 sample vertices.
+  Dropped points count as infinitely far; if the percentile itself is infinite, the largest finite
+  distance is used. It is cached per object, κ and s.
+- **Metres per unit:** `0.375 · smallest side / r₉₀ · size`: the fitted radius is 75 % of half the
+  smallest side.
+- **Lift** for size > 1: `0.375 · smallest side · (size − 1)`, so the bottom of the fitted radius
+  stays where it is at size 1.
+- **Thickness** t is a fixed length, `t · 0.375 m · reference side` (1 m in the volume, 2 m in the
+  room). Edge tubes have this radius: 0.012 gives 4.5 mm in the volume. Faces are offset by half of
+  it to each side: 0.08 gives 3 cm slabs.
 
-- **Euler characteristic:** vertices − edges + faces − cells = 0
-- **Structure:** every face belongs to exactly 2 cells. Every edge of a cell lies in exactly 2 of
-  its faces. In regular polytopes all edges have the same length.
-- **Rotation:**
-  - RᵀR = I and det R = 1 after 10⁶ steps
-  - A full turn of 2π gives I.
-  - G(XY) and G(ZW) commute.
-- **Projection:**
-  - κ = 0 returns (x, y, z).
-  - At κ = 1 on S³: the south pole maps to the origin, the equator (w = 0) to the unit sphere, and
-    great circles to circles or straight lines.
-- **Gesture:** dragging by Δ = (L, 0, 0) gives a rotation in the XW plane by k·L.
-- **Surfaces and curves:** the Clifford torus and the Hopf fibres lie on S³. The Hopf fibres are
-  pairwise disjoint. The Klein bottle satisfies the seam condition.
-- **App-side logic** (pure functions in the app target, e.g. presets and the mapping from gesture to
-  Ω) goes into Core4D or a small testable layer wherever possible.
+### 10.9 Axes and room placement
 
-### 6.9 Spikes, testability and acceptance
+- **Axes:** the ends ±R·eᵢ are projected like points, but not spherized: they are unit vectors, so
+  they meet the object also when it is spherized. An end at or behind the eye is pulled back along
+  its axis to d = ε, and ends are clamped to R_max. Lines stay straight under every κ.
+- **Level pose** (room): the position is the head's position. The heading is
+  yaw = atan2(−f_x, −f_z), where f is the head's −z axis projected onto the floor; when looking
+  straight up or down, the head's −y or +y axis is used instead. The content turns only about +y.
 
-**Snapshot mode for headless verification:** the app reads launch arguments as `UserDefaults`, e.g.
-`-object tesseract -projection perspective -display glass -time 1.5`. They set `ViewState` and
-freeze time at a fixed t. Together with `xcrun simctl io booted screenshot`, every state can be
-checked without clicking. The Developer section offers the same.
+## 11. Frame loop and rendering
 
-**Spikes in M0.** Each spike ends with a short entry in section 8 that records the chosen approach.
+### 11.1 The frame loop
 
-| Spike | Question | Acceptance |
-|---|---|---|
-| S1 Transparency | Which approach from 6.5? | Tesseract and 24-cell rotate in the Glass preset without visible flicker, also while walking around (device). All three methods switchable |
-| S2 Mesh update | Can `LowLevelMesh` handle 250,000 triangles per frame at 90 Hz? | Performance overlay with frame time and triangle count. Simulator gives a rough value, the device the real one |
-| S3 Gestures | Does `DragGesture` on an entity in a volume deliver a 3D translation? Do `RotateGesture3D` and `MagnifyGesture` work with two hands? How do the `ManipulationComponent` events behave (variant C)? | Gesture test scene in the Developer section that shows the raw values |
-| S4 Floor shadow | A directional light with shadow in a volume | Shadow visible on the floor disc |
+**Every frame, a RealityKit `System` updates each host's renderer, but the mesh is rebuilt only when
+R or a parameter has changed.** For each root (the volume's, and the room's while it is open):
 
-**Milestone acceptance.** "Device" means the user checks it on the Vision Pro.
+1. Advance the motion (`AppModel.tick`, §10.2).
+2. Map every point to 3D (§10.3).
+3. Drop invalid triangles and segments.
+4. Compute normals and the two face copies (§11.3) and build the edge tubes (§11.4).
+5. Turn colour keys into texture coordinates (§11.6).
+6. Copy vertices and indices into the meshes (§11.2).
 
-| Milestone | Acceptance |
-|---|---|
-| M1 | all Core4D tests green |
-| M2 | Simulator screenshots: tesseract with edges and faces in the 3 projection presets; switching between 4 polytopes. Device: smooth |
-| M3 | screenshots of all display presets and colour sources. Device: Glass without flicker, floor shadow visible |
-| M4 | simulator: mouse drag rotates in 4D. Device: throw and catch work, two hands rotate in 3D and scale. The user rates the feel; then tune k and the sign |
-| M5 | screenshots of the 120- and 600-cell, stereographic. Device: 90 Hz |
-| M6 | screenshots of the Klein bottle, Clifford torus and Hopf fibration with their colour sources |
+Steps 2–6 run only after a rebuild or when the frame's parameters changed: R, κ, s, the colour
+modes, the edge radius, the sort direction or the face offset. So nothing is computed while Ω = 0
+and nothing else changes. Around these steps:
+- **Structure:** when the object, p, q, the effective explode or the subdivision changes,
+  RenderMesh4D and FrameBuilder are rebuilt; the meshes are recreated only if they are too small.
+- **Layers:** materials and visibility are applied again only when they change.
+- **Cheap updates** every frame: scale, lift, input target, floor, axes; in the room, the root
+  follows the disc.
+- While the room is open, the volume's renderer only ticks.
 
-## 7. Decision log
+### 11.2 Meshes
 
-| # | Date | Decision | Rationale |
+- One `LowLevelMesh` entity for the faces and one for the edges, each with its own material.
+- One interleaved vertex buffer of 48 bytes per vertex: position float3 at 0, normal float3 at 16,
+  uv0 float2 at 32. Indices are uint32. The single part is replaced at every upload with its index
+  count and bounds.
+- Capacity is reserved once for the largest case: faces need 2 × points vertices and
+  6 × triangles indices, edges 6 vertices per polyline point.
+- Very large meshes are expensive to create, so they are reused while they are big enough.
+
+### 11.3 Faces: two copies of every triangle
+
+**Every face triangle exists twice, facing opposite ways, and back-face culling shows the copy
+that faces the viewer [D12, D16].** Lit materials are then right from every side without knowing
+where the viewer is.
+- The front copy has the vertex normals (area-weighted from the polygon's triangles) and the
+  winding as built; the back copy has the same points, negated normals and reversed winding.
+- Thick faces use the same copies: each moves by h along its own normal (h = 0 is a thin face)
+  [D24].
+- With per-cell entities, each polygon is first wound to face away from its projected cell centre,
+  and the copies are split by cell (§11.5).
+
+### 11.4 Edges: tubes
+
+RealityKit has no thick lines, so every polyline becomes a tube with 6 sides. The tangent comes
+from central differences; the first normal is t × x̂ (t × ŷ if |t_x| ≥ 0.9) and is carried along
+by parallel transport. Normals are radial. Both ends get flat fan caps, so open ends never show. A
+polyline is split at invalid points, and each piece gets its own caps.
+
+### 11.5 Transparency
+
+**Translucent faces must be drawn in the right order; the three methods differ in who orders them
+(spike S1).** The method is a Developer setting.
+
+| Method | Order | Blending | Look |
 |---|---|---|---|
-| D1 | 2026-11-08 | Native Swift app instead of WebXR | best gestures, a real app |
-| D2 | 2026-11-08 | Test with a free Apple ID for now | Developer Program later if needed |
-| D3 | 2026-11-08 | Gestures: build variant A, test variant C in spike S3 | standard gestures are robust; C is more elegant but unproven |
-| D4 | 2026-11-08 | v1 = M0–M6 | the app is usable from M2 on |
-| D5 | 2026-11-08 | v1 shows the volumetric window; the immersive space is prepared as far as possible (3.5) | keeps v1 focused without blocking room scale |
-| D6 | 2026-11-08 | Project generated with XcodeGen from `project.yml` | the project file can be versioned and reviewed as text |
-| D7 | 2026-11-08 | Deployment target visionOS 27.0 (newest) | the user updates the device |
-| D8 | 2026-11-08 | Everything in English, including UI, code and docs; open source under Apache 2.0, © Andreas Keese; git local first, moved to GitHub later | |
-| D9 | 2026-11-08 | Projection as two controls κ, s with presets | one formula covers orthographic, perspective and stereographic, and allows morphing |
-| D10 | 2026-11-08 | Display as layers with presets; volumes are cells with explode; colour per cell forces a minimum explode | fewer modes, orthogonal controls |
-| D11 | 2026-11-08 | Core4D (`unsafeFlags` in `Package.swift`) and the app target (`SWIFT_OPTIMIZATION_LEVEL` for Debug in `project.yml`) are compiled with `-O` in every configuration; debug info stays | the per-frame pipeline is ~40× slower unoptimised; a normal Run from Xcode should show the real speed. Revert when stepping through code in the debugger |
-| D12 | 2026-11-08 | Double-sided faces are emitted in both windings with back-face culling | same look as `faceCulling = .none`; keeps lit and shadow paths uniform (night run, S4) |
-| D13 | 2026-11-08 | Leaving the *Cells* display preset resets explode to 0 and the colour source to *by W* | otherwise every other preset would still look exploded; easy to change in `DisplayPreset.apply` |
-| D14 | 2026-11-08 | Subdivision only when s > 0; levels by size (n = 8/6/5, m = 3/2/2) | the projection maps lines to lines; large polytopes stay within budget |
-| D15 | 2026-11-08 | Automatic size: the 90th-percentile vertex radius, over 32 fixed orientations, fills 75 % of the box's smallest side (first 80 %, which let the tesseract touch the floor disc); the user's size is a factor on top; edge thickness is relative to the fitted radius | every object and projection fills the volume; stereographic outliers do not shrink the rest; no pumping while rotating |
-| D16 | 2026-11-08 | Every face triangle has a front copy (normal follows the winding) and a back copy (reversed winding, negated normal); no more "normals turned towards +z" | lit styles are correct from every side without a viewer position; costs twice the face vertices (small next to the tubes) |
-| D17 | 2026-11-08 | The window sorts towards the viewer's side of the volume (`onVolumeViewpointChange`, 4 sides); ARKit head pose only in the immersive space, later | the shared space gives no head pose; four sides are much better than a fixed +z |
-| D18 | 2026-11-08 | Start and reset orientation is a 3D tilt (35° XZ, 25° YZ) instead of the identity | the tesseract starts as the classic cube inside a cube, seen obliquely; axis-aligned views hide edges behind each other |
-| D19 | 2026-11-08 | The window is a 1 m box by default (was 0.8 m) and user-resizable (`windowResizability(.contentMinSize)`, at least 0.5 m); its measured size is the host's bounds, so size fit, floor disc and input target follow | 0.8 m looked small on the device; resizing is the standard visionOS way to make it bigger |
-| D21 | 2026-11-08 | With a size factor above 1 the object rises by `0.5 · fill · side · (factor − 1)`, so the bottom of its fitted radius stays where it is at factor 1 | enlarged objects sank into the floor disc; rotation-independent, so it does not bob. The top is cut by the volume instead; to see more, resize the window (D19) |
-| D22 | 2026-11-08 | Help: a "?" mode in the tab row, in which tapping any control explains it in the help panel instead of using it; explaining an object also shows it in the volume; an About page (version, date, author, usage guide); *Reset all* with a second tap to confirm | explains the app inside the app; the volume is the best picture of an object; two taps instead of a dialog, which might not work in the ornament |
-| D23 | 2026-11-08 | Control panel in an ornament *left* of the volume, help and About in an ornament *right* of it; no second window | a panel below the volume hid the system's window bar and resize corners (on the device and in the simulator); a separate help window made visionOS push the volume back and dim it, and was restored at launch. Ornaments show no 3D content, so the help has no live preview |
-| D24 | 2026-11-08 | Experimental *Surface* tab: three more materials (metal, ceramic, frosted glass) as `PhysicallyBasedMaterial` settings; image patterns (grid, marble, wood, drawn in code) on fixed per-face coordinates (polygon plane in ℝ⁴, 0.25 units per repeat; surfaces: u, v × 8) that *replace* the colour source on the faces; thick faces by moving the front and back copies along their normals (±½ thickness) | the user asked to try all three. RealityKit's standard materials ignore vertex colours (tested), so colour and pattern cannot share a face without a custom shader; a pattern fixed in 4D shows the projection's distortion. Additive transparency washes light patterns out, so a pattern switches it to sorted |
-| D20 | 2026-11-08 | Optional *Axes* layer: the object's four 4D axes (−eᵢ…+eᵢ), rotated and projected like its points, coloured x red, y green, z blue, w yellow, labelled at the + end | shows how the four directions map into the shadow; w starts as a point (it is the projected-away direction) and grows as the object turns into w. Lines stay straight under every κ; the ends are unit vectors, so they meet the object also when spherized |
-| D25 | 2026-11-08 | Controls and Info are separate `Window`s (supersedes D23's ornaments): controls placed `.leading(volume)`, Info as `.utilityPanel`; neither launches nor is restored by the system; the volume opens the controls on appear, opens/closes Info with `showsHelp`, closes both when it closes; a *Controls* ornament on the volume brings closed controls back | the user wants to move the panels; ornaments cannot be moved apart from their window. D23's push-back came from a window at the default spot in front of the volume; these placements avoid it. A second window placed beside the volume opened out of view in the simulator, so Info uses the utility-panel spot. Trade-off: the panels no longer follow when the volume moves |
-| D26 | 2026-11-08 | Drag gain k = 10 rad/m, a full 4D turn per 0.63 m of drag (was 2π per 0.3 m); Developer slider 2…18 rad/m with the default in the middle | the user found the drag rotation too sensitive, tried 2π per 0.6 m and then chose 10 on the device |
-| D27 | 2026-11-08 | The volume requests clipping margins of 0.5 m on every side (`preferredWindowClippingMargins`); the granted margins are logged | the user dislikes the clipping at the volume's walls; margins keep the window but let enlarged or stereographic shadows reach out of it. The system may grant less. A full immersive space would remove all limits but hides other apps' windows; decide after the device check |
-| D28 | 2026-11-08 | Edge and face thickness keep their size in metres when the object is zoomed (Size, pinch) or the window resized: relative to the fitted radius at size factor 1 in a reference box (window 1 m, room 2 m), `SizeFit.fixedLength` | the user: "when I zoom or pinch in, the edges should not scale". Face thickness follows, so edges still cover the rims of thick faces |
-| D29 | 2026-11-08 | Settings are kept between launches: `SavedSettings` (every `ViewState` stage except the orientation, plus the drag mapping) as JSON in the user defaults, saved 0.5 s after the last change and when the volume leaves the foreground; each part decodes on its own and falls back to its default; numbers are clamped. Any recognised launch argument means snapshot mode: start from the defaults, save nothing | the user wants the settings kept. The orientation always starts at the start tilt (D18). Per-part decoding keeps most settings when an update changes one stage's fields |
-| D30 | 2026-11-08 | Room (immersive space): the content is placed once 2 m in front of the viewer's head (`AnchorEntity(.head, trackingMode: .once)`), 15 cm below eye level, in a 2 m box (object ≈ 1.5 m); the volume shows nothing while the room is open; opening logs its result and shows a reason if it fails | the button seemed to do nothing on the device; in the simulator the room opened, but its fixed position (2.8 m from the space origin) was off to the side. A head-tilted start tilts the content [verify on device] |
-| D31 | 2026-11-08 | Per-cell entities (S1) only with explode and at most 48 cells; the 120- and 600-cell use sorted instead | the device crashed on the exploded 600-cell. Simulator with per-cell entities: 600-cell 5 Hz (631 ms CPU per frame), 120-cell 40 Hz (24 ms); with the fallback 120 Hz (1 ms). Additive and the Cells display preset were fine (1.3 ms), fine subdivision heavy but running (504k triangles, 6.7 ms) |
-| D32 | 2026-11-08 | Gesture input target in the window: a sphere filling the volume (radius ½ of its smallest side), centred and never lifted; in the room it follows the object's size and lift. The gestures target only entities with `ShadowInputComponent` | on the device an enlarged object stopped reacting until Reset all: the input sphere was lifted with the object (D21) and left the volume, where touches are not delivered. Targeting by component keeps other touchable entities (the room's disc) from rotating the object |
-| D33 | 2026-11-08 | Room: the floor disc is a handle. It redirects the system's manipulation (`ManipulationComponent.HitTarget`) to the room's root, translation only, so dragging the disc moves object, disc and light through the room; the disc stays visible without the floor shadow | the user asked to move the room object by grabbing the disc; the system's manipulation needs no own gesture maths under the head anchor |
-| D34 | 2026-11-08 | Closing the volume or the controls closes the app: both set `isClosing`, and every window (and the room) then closes itself. The "Controls" button to reopen closed controls is gone | the user wants one close to end the app; a window that is going away may no longer be able to close the others [verify on device] |
-| D35 | 2026-11-09 | *Reverted by D38.* Controls and Info are ornaments of the volume again (supersedes D25's windows), each with a grab bar below it. A panel's place is a reference point of the volume per axis (lower edge, centre or upper edge) plus an offset in metres (`PanelPlace`), saved with the settings; dragging the bar moves the panel in 3D, and on release each axis is re-anchored to the nearest reference. While dragging, the ornament keeps its anchor, gets a 1500 pt transparent margin and the panel is shifted inside it; on release the shift becomes the anchor. Reset all keeps the places. `-controlsAt` / `-infoAt` set them for snapshots. Closing the app now means closing the volume (D34's controls window is gone) | the user wants the panels to stay where they were put, relative to the object, also after closing Info and between launches. visionOS lets an app neither read nor set a window's position (`WindowPlacement` only knows beside, above, below and utility panel), so windows cannot do this. An ornament measures gestures only in its own space, which moves with its anchor, and clips to its bounds (§8), hence the margin. Trade-offs: the panels move with the volume, have no system bar and cannot be resized by hand; a panel right below the volume hides its window bar (D23) |
-| D36 | 2026-11-09 | Room content is placed level: under an entity at the head's pose without pitch and roll (`LevelPose`, from ARKit world tracking, queried once when the room opens; the head anchor only if world tracking is unavailable). The renderer keeps the root upright every frame | the user: dragging the disc tilted the object; it should stay parallel to the floor. The head anchor (D30) carried the head's tilt at opening into the content. World tracking needs no authorization [verify on device] |
-| D37 | 2026-11-09 | "Open in room" moves from Developer to the Display tab, without "experimental" | the user: the room works |
-| D38 | 2026-11-09 | D35 reverted: Controls and Info are windows again, as in D25 and D34 (closing the volume or the controls closes the app); no saved panel places | on the device the ornaments did what D35 promised but were worse to use: a panel moved in front of the volume could no longer be grabbed by its bar (its buttons still worked), and it could not be moved away from the volume, since it moves with it; ornaments stay parallel to the volume instead of turning towards the viewer as windows do; Info behaved oddly. The user prefers the windows |
-| D39 | 2026-11-09 | Room: the floor disc is the root's sibling under a room base, with the `ManipulationComponent` on the disc itself; the root follows the disc every frame (supersedes D33's redirect to the root) | on the device, grabbing the object in the room moved everything instead of turning it: the manipulation sat on the root, an ancestor of the object's input sphere, and took its grabs too |
-| D40 | 2026-11-09 | Info opens `.below(controls)`; `.utilityPanel` only if the controls are closed (supersedes D25's Info placement). The controls window opens Info at launch when help is asked for, the volume only the controls | the user wants Info to come back where they put it; visionOS cannot save a window's place (§8), but placing it by the controls keeps it near wherever the user moved them. Below, not beside: the controls are 1060 pt wide and a window left of them would land on the volume if the controls were moved to its right. Opened in the same `onAppear` as the controls, Info did not find them and fell back to the utility panel. Risks [verify on device]: the controls change height with the tab and may grow into Info; Info sits low if the controls already are |
+| Additive (default) | none needed | `.add` program, no depth writes | glowing glass; light patterns wash out to white |
+| Sorted | per triangle, back to front along the sort direction | alpha, no depth writes | clean glass |
+| Per-cell entities | per cell, by RealityKit; inside a cell the back copies first (`ModelSortGroup`) | alpha | exploded cells layered correctly |
 
-## 8. Findings (continued during implementation)
+- Faces with an opacity of 99.9 % or more are opaque and write depth; at 0.1 % or less they are
+  hidden. Edges are always opaque.
+- **Fallbacks:** per-cell entities need explode > 0 and at most 48 cells, otherwise sorted is used
+  [D31]; additive with a pattern draws sorted [D24]; until the asynchronous `.add` programs are
+  ready, additive draws as unsorted alpha.
+- **Sort direction:** in the volume, towards the viewer's side (front +z, right +x [verify], back
+  −z, left −x; `-viewpoint` overrides it) [D17]; in the room, +z.
+- Per-cell entities are created lazily: per cell one entity with the back copies (order 0) and one
+  with the front copies (order 1), placed at the cell's centroid.
 
-- **2026-11-08, environment:**
-  - Xcode 27.1 (27A9275) with the visionOS 27.0 SDK; Swift 6.4; Apple Silicon.
-  - `xcode-select` points to the Command Line Tools, so commands need
-    `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
-  - XcodeGen 2.46.0 installed via Homebrew.
-  - visionOS 27.0 simulator runtime (24M362) installed via `xcodebuild -downloadPlatform visionOS`
-    (7.5 GB). Simulator device: "Apple Vision Pro".
-  - Smoke test: `xcodegen generate`, then `swift test` and `xcodebuild` for
-    `generic/platform=visionOS Simulator` with the template from 6.1. **BUILD SUCCEEDED**, tests
-    green.
-  - Visual loop verified: boot, install, launch with launch arguments, and
-    `simctl io … screenshot` work. The volumetric window appears in the simulator's virtual living
-    room. A 0.2 m box in a 0.6 m volume looks small in the screenshot, so snapshot mode should use
-    a larger scale.
-  - Installing right after boot fails with `IXErrorDomain code=3 "Failed to locate promise"`.
-    It works after `bootstatus -b` plus about 20 s.
-  - The project permissions for unattended runs are in `setup/claude-settings.json`. The user
-    copies them to `.claude/settings.json`; Claude is not allowed to change its own permissions.
-- **2026-11-08, SDK check (visionOS 27.0):** these declarations exist, but their behaviour is
-  **not** tested:
-  - RealityKit: `LowLevelMesh`, `LowLevelTexture`, `ModelSortGroupComponent`,
-    `ManipulationComponent` with `ManipulationEvents`, `GroundingShadowComponent`,
-    `DynamicLightShadowComponent`, `DirectionalLightComponent`, `ShaderGraphMaterial`
-  - materials: `faceCulling`, `writesDepth`, `readsDepth`, blend modes `.alpha` and `.add`
-  - SwiftUI: `RotateGesture3D`, `MagnifyGesture`, `SpatialEventGesture`, `manipulable`
-- **2026-11-08, sandbox:** `xcrun`, `swift`, `xcodebuild` and `simctl` fail inside Claude Code's
-  sandbox. They cannot create the xcrun cache under `/var/folders`, and CoreSimulator is
-  unreachable. They must run outside the sandbox (`sandbox.excludedCommands` in
-  `.claude/settings.json`). Commands containing `cd`, pipes, redirects or `$(...)` stay sandboxed
-  even then.
-- **2026-11-08, night run (M0–M2):**
-  - XcodeGen enumerates source files at generate time: after adding a Swift file, run
-    `xcodegen generate` again, otherwise the build fails with "cannot find … in scope".
-  - `UnlitMaterial.Blending` and `PhysicallyBasedMaterial.Blending` are the same type.
-    `UnlitMaterial.Program(descriptor:)` / `PhysicallyBasedMaterial.Program(descriptor:)` are
-    `async`; the `.add` programs are created once at start-up, and until they are ready the
-    additive method falls back to alpha blending.
-  - simd has no `simd_float4x4(simd_double4x4)` initializer; Core4D has `Rotation4D.float(_:)`.
-  - `LowLevelMesh` with one interleaved buffer (position @0, normal @16, uv0 @32, stride 48,
-    `SIMD3<Float>` padding) works; parts are replaced every frame with the new index count and
-    bounds.
-  - The projection maps lines to lines, so subdivision is only needed when s > 0
-    (`TessellationOptions.recommended`); at s = 0 every edge is one segment and every polygon a
-    plain fan.
-  - Faces are double-sided; normals are turned towards the viewer (+z of the box) per polygon
-    (polytopes) or per vertex (surfaces), so lit styles look right from the front.
-  - Tubes have flat caps (fans over the end rings) so their open ends never show.
-  - Simulator: the app launches in about 3–5 s; a screenshot taken right after `simctl launch`
-    shows the system's loading placeholder. The simulator renders at 120 Hz; the debug build
-    needs about 1.5 ms CPU per frame for the 24-cell (2,200 triangles).
-  - In the simulator's living room, a 0.8 m volume with 0.2 m per object unit still looks small;
-    snapshots use `-scale 1.3…1.6`.
-- **2026-11-08, night run (M3–M5):**
-  - **Performance:** unoptimised Swift is about 40× slower for the per-frame pipeline: the
-    stereographic 120-cell (81k triangles) took 34.7 ms CPU per frame in a Debug build and 0.8 ms
-    in Release (simulator on the Mac). Core4D is therefore compiled with `-O` even in Debug
-    (`unsafeFlags` in `Package.swift`; accepted for a local package). The 600-cell then needs
-    1.4 ms in a Debug build of the app.
-  - **S1 transparency:** all three methods work in the simulator. *Additive* gives the glowing
-    glass look; *sorted* (alpha, matte) gives clean glass with no visible sorting errors for the
-    24-cell; *per-cell entities* (one `ModelSortGroup` per cell, back faces order 0, front faces
-    order 1, cell entities positioned at their centroids) layers exploded cells correctly.
-    Flicker while walking around can only be judged on the device.
-  - **S4 floor shadow:** `DirectionalLightComponent` + `Shadow` casts clear shadows of the edge
-    tubes onto the disc. Face shadows appeared only in some runs (Cells preset, uniform 16-cell),
-    not for the solid 24-cell, also not after drawing faces with both windings and back-face
-    culling. A `.fixed` orthographic shadow projection showed no shadow at all. With
-    `GroundingShadowComponent` the disc only got darker overall. Default stays the directional
-    light; the Developer section switches methods [verify on device].
-  - Faces are now drawn as both windings with back-face culling (visually identical to
-    `faceCulling = .none`); this was a hypothesis for S4 and is harmless.
-  - **S2 mesh update (simulator, Debug app with optimised Core4D):** stress test 120-cell,
-    stereographic, Cells preset, fine subdivision (n = 8, m = 3): 503k triangles, 239k vertices,
-    13.4 ms CPU per frame (65 Hz), of which only 2.3 ms is the FrameBuilder pipeline; the rest is
-    copying ~17 MB per frame into the `LowLevelMesh` buffers. Normal settings stay at about 1 ms
-    (120-cell 81k triangles, 600-cell 69k triangles). Extrapolated: 250k triangles ≈ 6–7 ms in the
-    simulator. The device must give the real number; if the upload is too slow there, the next
-    steps are a packed 32-byte vertex format and writing straight into the mesh buffers, before
-    considering Metal (ask first).
-- **2026-11-08, night run (M6 and wrap-up):**
-  - Surfaces share their grid points, so normals are smooth; normals are turned towards the
-    viewer per vertex, which also handles the non-orientable Klein bottle. The checkerboard shows
-    the Klein bottle's seam flip directly.
-  - Hopf fibres are closed polylines (last index = first); tubes get caps at the closing point.
-  - The String Catalog (`Localizable.xcstrings`) is in the target and all UI strings are
-    `LocalizedStringKey`s, but `xcodebuild` does not write the extracted keys back into the
-    catalog; Xcode does that on the first build in the IDE.
-  - S3: `ManipulationComponent.configureEntity(_:collisionShapes:)` plus `ManipulationEvents`
-    subscriptions via `RealityViewContent.subscribe(to:)` compile; the probe sphere sits at the
-    front-right corner of the volume, outside the main input target, so the two do not compete.
-    Behaviour of all gestures is untested (simulator CLI cannot inject gestures).
-  - When the stress-test meshes (~240k vertices) are created, RealityKit logs "Hang detected while
-    waiting for renderer to free resources" once; the app then runs normally. Recreating very
-    large `LowLevelMesh`es is a visible hitch, so meshes are reused when their capacity suffices.
-- **2026-11-08, after v0.9 (D11 extended, D15–D18):**
-  - App target with `-O` in Debug: the S2 stress test gave 18–23 ms CPU in the simulator (build
-    2.0–3.0 ms) against 13.4 ms during the night run. The FrameBuilder part is unchanged; the rest
-    is the copy into `LowLevelMesh`, a plain memory copy inside RealityKit that compiler flags do
-    not touch. The difference is simulator load, not the flag; only the device gives a reliable
-    number.
-  - Automatic size (D15): tesseract, 24-cell, Klein bottle and the stereographic 120-cell fill the
-    volume; the 120-cell's outermost cells are cut by the volume, as intended. At 80 % fill the
-    tesseract's lowest corner almost touched the floor disc, so the fill is now 75 %.
-  - Flipped faces (D16): lit styles (Solid 24-cell, glossy Klein bottle) look right from the front
-    in the simulator; the back and sides can only be checked on the device. The overlay's triangle
-    count includes both copies of every face triangle.
-  - Per-cell entities now use two meshes per cell (front copies, back copies), both with back-face
-    culling, instead of one mesh drawn with front and back culling.
-  - `onVolumeViewpointChange(updateStrategy: .all)` compiles. Whether it fires in a volume, and
-    whether `.right` means the viewer stands at +x, can only be checked on the device; the
-    Developer section shows the current side, and `-viewpoint` fixes it for snapshots.
-- **2026-11-08, first device run (D19, D20):**
-  - Installing from Xcode with the visionOS 27.0 SDK onto a headset running visionOS 27.2 worked;
-    the first "Preparing device" took several minutes over Wi‑Fi.
-  - The segmented `Picker` for the panel tabs highlighted on look but did not react to taps,
-    while the `SelectButton`s in the same ornament did. Cause unknown (the ornament API is the new
-    3D one with `Alignment3D`). All segmented pickers are now rows of `SelectButton`s. Sliders,
-    toggles and menu pickers were not reachable yet and still need a device check.
-  - The 0.8 m window looked small; now 1 m and resizable (D19). Axes layer added (D20).
-- **2026-11-08, second device round (D21, D22):**
-  - On the device there was no window bar and no resize corner. In the simulator the system's
-    window bar sits right below the volume while the app loads, exactly where the panel's top edge
-    was; once the panel appears, the bar is no longer there, so visionOS presumably moves it below
-    the panel [verify on device]. The panel now starts 90 pt below the volume, which also keeps
-    the volume's bottom corners (resize handles) uncovered.
-  - Tabs and the Axes switch work on the device, so toggles (UIKit-backed) are fine; only the
-    segmented picker failed.
-  - `Info.plist` had a fixed version 1.0; it now takes `MARKETING_VERSION` (0.10.0) and
-    `CURRENT_PROJECT_VERSION`.
-  - Once in the simulator, with `-scale 1.4 -help about`, the volume's object appeared about 3×
-    too large and unclipped. It did not happen again with either argument alone or in a second
-    run. Unexplained; watch for it on the device.
-- **2026-11-08, third device round (D23):**
-  - Still no window bar and no resize corner on the device. Experiment in the simulator: with the
-    panel on the volume's left side, the bar stays visible below the volume after loading; with
-    the panel below, it disappears. So a bottom ornament hides the window controls.
-  - "Sometimes dark and far away" with help open: reproduced in the simulator. visionOS restored
-    the help `Window` at launch, placed it in front of the volume and pushed the volume back and
-    dimmed it. The 3× object above was most likely the same rearrangement. The help is now an
-    ornament, so there is only one window.
-  - A `RealityView` inside an ornament shows nothing, so the live preview is gone; explaining an
-    object shows it in the volume instead.
-  - The volume's size is restored between launches (once 1360 × 1000 × 1360 pt, i.e.
-    1 × 0.74 × 1 m); `defaultSize` only applies to a new window.
-- **2026-11-08, Surface tab (D24):**
-  - A `.color` vertex attribute in the `LowLevelMesh` has no effect on `PhysicallyBasedMaterial`
-    (tested with normals as colours: the faces stayed uniform). Combining a colour source with a
-    pattern would need a `ShaderGraphMaterial`.
-  - Grid on a translucent tesseract: with additive blending the layers add up to white and the
-    grid disappears; sorted shows it on every cell, with visible perspective foreshortening.
-  - Marble reads as stone on the Klein bottle; wood still looks like corrugated cardboard (too
-    much waviness for the repeat size). Metal reflects the room; thick faces turn cells into plates.
-  - Thick faces have open rims; edges at least half the face thickness cover them. The Klein
-    bottle's seam (orientation reversal) shows as a step in thick mode.
-  - Colour × pattern with standard materials, second try: pattern as the ambient-occlusion map of
-    `PhysicallyBasedMaterial`, pattern coordinates in a `.uv1` attribute. The map works (grid lines
-    darken the faces) but reads `uv0`, not `uv1`, so it cannot be combined with the colour lookup
-    in `uv0`. Reverted. Only a `ShaderGraphMaterial` (texture(uv0) × texture(uv1)) can combine both.
-- **2026-11-08, panel windows (D25):**
-  - Device: with the panel on the left the window bar and resize corners work; moving and
-    resizing the volume confirmed by the user.
-  - Simulator: `.leading(volume)` places the controls left of the volume, facing the viewer. A
-    second window placed beside the volume (`.trailing`, or `.leading` when the controls took
-    `.trailing`) was created (scene log) but not visible in the simulator's view. `.utilityPanel`
-    shows the Info panel low in front of the viewer; the volume is not pushed back or dimmed.
-  - Opening both windows in the same `onAppear` works.
-- **2026-11-08, clipping margins (D27):** the simulator granted 47 cm on every side for the
-  requested 50 cm (the first report is 0, before layout). A tesseract at Size 2 is drawn whole,
-  far beyond the 1 m volume; at Size 4 it is cut at the margins.
-- **2026-11-08, room, persistence, 600-cell (D28–D31):**
-  - Room in the simulator: `openImmersiveSpace` returns `opened`; with the head anchor the object
-    stands in front of the viewer with its floor disc, the volume is empty. Why the device button
-    seemed to do nothing is still unknown; the result is now logged and shown.
-  - Per-cell entities cost about 1 ms per cell per frame for the 600-cell (two `LowLevelMesh`
-    updates per cell), so it stalled; see D31 for the numbers.
-  - Saved settings load (a 24-cell at Size 0.8 written to the defaults came back without launch
-    arguments). Saving after a change was not driven in the simulator.
-- **2026-11-08, device round (D32–D34):** room opens and works; settings, 600-cell with explode
-  fine. Exploded 600-cell in Metal is slow on the device but runs at 119 Hz with 1.2 ms CPU in the
-  simulator, so the device's GPU is the limit (many overlapping reflective, translucent layers;
-  explode doubles the faces and makes five times the edges). Not yet addressed; needs the
-  device's overlay numbers.
-- **2026-11-09, panels as movable ornaments, level room (D35–D37):**
-  - `WindowPlacement.Position` in the visionOS 27 SDK has only `utilityPanel`, `leading`,
-    `trailing`, `above`, `below` (and the deprecated `replacing`); `UIWindowScene` geometry
-    preferences only size. No API reads or sets a window's position.
-  - Ornament anchors far outside the volume work (`.scene(UnitPoint3D)` with x = −0.3 or 1.2,
-    y = 1.4, z = 1.4). Content shifted with `.offset` past the ornament's bounds is cut off; with a
-    transparent `.padding` around it, the shifted panel shows whole, also shifted in z.
-  - In an ornament, `frame(in: .global)` and `frame(in:)` of a named space declared on the volume
-    both gave the panel's own origin whatever the anchor, so the gesture coordinates move with
-    the ornament. Dragging itself cannot be driven in the simulator [verify on device].
-  - In the simulator the room's device anchor is the space origin with no turn, so the level
-    placement looks like before; it opens and logs "room placed level".
-- **2026-11-09, device round (D35, D38, D39):**
-  - Dragging the ornament panels by their bars worked. But a panel moved in front of the volume
-    could no longer be grabbed by its bar, while its buttons still reacted, and it could only be
-    moved together with the volume. Ornaments do not turn towards the viewer; windows do.
-  - In the room, a grab on the object moved object and disc (D33's manipulation on the root
-    caught the grabs on its descendants), so the object could not be turned or thrown there.
-- **2026-11-09, Info below the controls (D40):** in the simulator, Info opened with
-  `.below(controls)` appears under the controls window, left of the volume. Opened in the same
-  `onAppear` as the controls, the placement closure did not see them yet and Info took the
-  utility-panel spot; opened from the controls' `onAppear`, it found them. Moving the controls
-  first cannot be driven in the simulator [verify on device].
+### 11.6 Materials and textures
 
-## 9. Glossary
+**Every colour source is a small texture plus a texture coordinate, so all sources take one path.**
+
+Glowing is an `UnlitMaterial`; the other materials are `PhysicallyBasedMaterial`s with a white tint
+times the texture:
+
+| Material | Roughness | Other |
+|---|---|---|
+| matte | 0.75 | |
+| glossy | 0.15 | clearcoat 1, clearcoat roughness 0 |
+| metal | 0.22 | metallic 1 |
+| ceramic | 0.35 | clearcoat 1, clearcoat roughness 0.05 |
+| frosted glass | 0.6 | clearcoat 0.5, clearcoat roughness 0.3 |
+
+Textures are 8-bit sRGB, clamped, with linear filtering unless noted:
+
+| Source | Texture | uv |
+|---|---|---|
+| uniform | 4×4, (0.55, 0.85, 1) | (½, ½) |
+| plain light (edges) | 4×4, (0.95, 0.95, 0.90) | (½, ½) |
+| by W | 256×1: blue (0.15, 0.40, 1) → (0.85, 0.80, 0.95) → red (1, 0.22, 0.18) | ((w + 1)/2, ½), every frame |
+| per cell | 12×1 palette, nearest filtering | ((cell mod 12 + ½)/12, ½) |
+| surface parameter | 384×192 checkerboard of 12 × 6 squares, (1, 0.80, 0.35) and (0.20, 0.45, 0.90) | (u, v) |
+| per fibre | 256×1 hues, HSV(i/256, 0.75, 1) | (key, ½) |
+
+**Patterns** are 256 × 256, tileable, mipmapped and repeating, drawn in code with a wave
+t = a sum of five integer-frequency sines:
+- *grid:* 10 px lines (0.16, 0.22, 0.40) on two sides of a paper tile (0.93, 0.93, 0.96);
+- *marble:* veins (0.42, 0.44, 0.50) in stone (0.95, 0.94, 0.91), mixed by s^0.25 with
+  s = ½ + ½ sin 2π(u + 0.3t);
+- *wood:* dark (0.52, 0.32, 0.16) to light (0.86, 0.66, 0.42) rings, mixed by (1 − |2f − 1|)^0.6
+  with f = frac(3v + 0.25t).
+
+Pattern coordinates are fixed in 4D: in the plane of each polygon, 0.25 units per repeat, the first
+axis along the polygon's first side; on surfaces (u, v) × 8.
+
+### 11.7 Floor shadow
+
+- **Disc:** a 4 mm cylinder at the floor height with radius 0.3 × min(width, depth), so 0.3 m in
+  the volume and 0.72 m in the room. Physically based white (0.9), roughness 1; it casts no
+  shadow.
+- **Light:** directional, intensity 3000, pointing down from 0.48 × the height, with a shadow
+  (maximum distance 4 m, depth bias 1).
+- **Methods** (Developer, spike S4): *directional light*, the default, where faces, edges and cells
+  cast shadows; or *grounding shadow*, where the light is off and the casters get a
+  `GroundingShadowComponent`. Turning the floor shadow off hides disc and light in the volume; the
+  room keeps the disc as handle.
+- Edge shadows are clear; face shadows appeared only sometimes (§13.3) [verify on device].
+
+### 11.8 Input
+
+- **Input target:** a separate entity with a static collision sphere, an `InputTargetComponent` and
+  a `ShadowInputComponent`; the mesh changes every frame, so it cannot be the target. All gestures
+  accept only entities with a `ShadowInputComponent` [D32].
+  - Volume: radius ½ × the smallest side, centred and never lifted, because touches outside the
+    volume are not delivered.
+  - Room: radius 0.375 × the smallest side × size, at the lift.
+- **Gestures** are SwiftUI gestures targeted to that entity: `DragGesture(minimumDistance: 0)`,
+  whose location is converted into the target's space, plus `RotateGesture3D`, `MagnifyGesture`
+  and `SpatialTapGesture(count: 2)` as simultaneous gestures (maths in §10.7).
+- **Room disc:** a collision box (2r × 6 cm × 2r), a hover effect and a `ManipulationComponent` on
+  the disc itself: it stays where released, translates freely (also vertically), does not rotate
+  or scale and has no inertia. It must not sit on an ancestor of the object's input target, or it
+  takes the object's grabs too [D39].
+- **Gesture test** (spike S3): a 4 cm sphere with its own `ManipulationComponent` (it springs back
+  when released) at bounds × (0.4, −0.38, 0.4). A panel beside the volume shows the raw values of
+  the SwiftUI gestures and the `ManipulationEvents` of all content.
+
+### 11.9 Performance
+
+- **Budget:** 90 Hz, so under about 3 ms CPU per frame for the 120-cell on the device.
+- Work on the CPU with SIMD first and measure. Move to Metal compute only if the budget is
+  exceeded, and ask first.
+- Core4D and the app are compiled with `-O` even in Debug: the pipeline is about 40× slower without
+  it [D11].
+- The performance overlay (S2) shows the frame time and rate, the CPU time per frame and per
+  build, and the triangle and vertex counts, averaged over 0.5 s. Measurements are in §13.4.
+
+## 12. Project, build and verification
+
+### 12.1 Platform and conventions
+
+- A native visionOS app [D1]: Swift 6 (tools 6.4, language mode 6), SwiftUI, RealityKit, and ARKit
+  world tracking for the room's placement. No third-party code; XcodeGen is the only extra tool
+  [D6].
+- Deployment target visionOS 27.0 [D7]. Core4D also supports macOS 27, so its tests run on the Mac.
+- Everything is in English: UI, code, comments and docs. UI strings go through a String Catalog, so
+  the app can be localised later [D8].
+- Licence: Apache 2.0, © 2026 Andreas Keese (`LICENSE`, `NOTICE`).
+- Signing: a free Apple ID (Personal Team), so an install lasts 7 days [D2]. The team ID and the
+  real bundle ID live only in the git-ignored `Config/Signing.local.xcconfig`, which the user
+  creates.
+
+### 12.2 Project layout
+
+```
+visionpro_shadow43/
+├── DESIGN.md                      this document
+├── CLAUDE.md                      working rules for Claude
+├── NIGHT_RUN.md, NIGHT_REPORT.md  plan and log of the unattended runs and device rounds
+├── README.md, LICENSE, NOTICE
+├── setup/claude-settings.json     Claude Code permissions; the user copies it to .claude/settings.json
+├── project.yml                    XcodeGen spec; Shadow43.xcodeproj is generated and git-ignored
+├── Config/
+│   ├── Shared.xcconfig            committed: placeholder bundle ID, optional include of the local file
+│   └── Signing.local.xcconfig     git-ignored: DEVELOPMENT_TEAM, the real PRODUCT_BUNDLE_IDENTIFIER
+├── Shadow43/                      app target
+│   ├── App/                       app, scenes and windows, AppModel, SceneHost, settings store
+│   ├── UI/                        control panel
+│   ├── Help/                      help topics, Info window
+│   ├── Rendering/                 renderer and System, meshes, materials, textures, floor, axes, head pose
+│   ├── Input/                     gestures
+│   ├── Debug/                     snapshot mode, performance overlay, gesture test
+│   └── Resources/                 String Catalog
+└── Packages/Core4D/               local Swift package: Foundation and simd only
+    ├── Sources/Core4D/            complex and generators, rotation, projection, tessellation, frame
+    │                              builder, state and presets, launch arguments, saved settings,
+    │                              gestures, size fit, axes, room pose
+    └── Tests/Core4DTests/         Swift Testing
+```
+
+- Run `xcodegen generate` after adding or removing a file: XcodeGen lists the sources when it
+  generates the project.
+- `App.body` must be declared as `some SwiftUI.Scene`, because RealityKit also defines `Scene`.
+
+### 12.3 Build settings
+
+- **project.yml:** visionOS 27.0 and the local package Core4D. Info.plist is generated from
+  `info.properties`: display name, development region en, `CFBundleShortVersionString =
+  $(MARKETING_VERSION)` (0.10.0), `CFBundleVersion = $(CURRENT_PROJECT_VERSION)` (1), and a scene
+  manifest with the volumetric role as the preferred default and multiple scenes. Settings:
+  `SWIFT_VERSION` 6.0, automatic signing, `SWIFT_EMIT_LOC_STRINGS` and
+  `LOCALIZATION_PREFERS_STRING_CATALOGS` on, `-O` also for Debug [D11].
+- **Package.swift:** tools 6.4; platforms macOS 27 and visionOS 27; `unsafeFlags(["-O"])` for
+  Core4D, which is acceptable for a local package [D11].
+- **Config/Shared.xcconfig:** `PRODUCT_BUNDLE_IDENTIFIER = com.example.shadow43` and
+  `#include? "Signing.local.xcconfig"`.
+- No privacy keys: world tracking needs no authorization [verify on device].
+
+### 12.4 Tests
+
+- Every public Core4D function has tests (Swift Testing, `swift test`). Pure app logic moves into
+  Core4D wherever possible, so it can be tested.
+- **f-vectors** (vertices, edges, faces, cells): 5-cell (5, 10, 10, 5), tesseract
+  (16, 32, 24, 8), 16-cell (8, 24, 32, 16), 24-cell (24, 96, 96, 24), 600-cell
+  (120, 720, 1200, 600), 120-cell (600, 1200, 720, 120), duoprism p×q (pq, 2pq, pq + p + q, p + q).
+- **Structure:** Euler characteristic 0; every face in exactly 2 cells; every edge of a cell in
+  exactly 2 of its faces; equal edge lengths in regular polytopes; planar, cyclically ordered
+  faces.
+- **Rotation:** RᵀR = I and det R = 1 after 10⁶ steps; a full turn of 2π gives I; G_xy and G_zw
+  commute; friction stops at its threshold.
+- **Projection:** κ = 0 returns (x, y, z); w = 0 stays fixed; at κ = 1 on S³ the south pole maps to
+  the origin, the equator (w = 0) to the unit sphere, and great circles to circles or lines.
+- **Surfaces and curves:** the Clifford torus and the Hopf fibres lie on S³; the fibres are pairwise
+  disjoint; the Klein bottle satisfies its seam condition and has no self-intersection.
+- **Pipeline:** subdivision counts, explode, culling, sort order, outward cell faces, the visible
+  lit copy, tubes, uv modes, patterns, thick faces.
+- **Gestures:** a drag by (L, 0, 0) turns XW by k·L; the sign; throws and their clamp; the twist.
+- **Settings:** every launch argument with its problems and clamps, `-time`; saved settings (round
+  trip without R, per-part fallback, the snapshot rule); size fit; axes; level pose.
+
+### 12.5 Snapshot mode and launch arguments
+
+**Every visual state can be set from the command line, so it can be checked with a screenshot
+instead of clicks.** Launch arguments arrive as strings in the `UserDefaults` argument domain, for
+example `-object tesseract -projection perspective -display glass -time 1.5`. Any recognised key
+starts snapshot mode (§9.4). Presets are applied first, then single keys. Invalid values are
+ignored, logged and listed in the Developer tab. Booleans are 1/yes/true/on or 0/no/false/off.
+
+| Stage | Keys and values |
+|---|---|
+| Object | `object` 5-cell, tesseract, 16-cell, 24-cell, 120-cell, 600-cell, duoprism, klein-bottle, clifford-torus, hopf · `p`, `q` 3…24 |
+| Projection | `projection` orthographic, perspective, stereographic · `kappa`, `spherize` 0…1 |
+| Display | `display` wireframe, glass, solid, cells · `edges`, `floorShadow`, `axes` (bool) · `thickness`, `opacity`, `explode`, `faceThickness` · `edgeColor` faces, light · `colors` uniform, by-w, per-cell, surface, per-fibre · `style` matte, glossy, glowing, metal, ceramic, frosted · `pattern` none, grid, marble, wood |
+| Motion | `motion` simple, double, isoclinic, drift, none · `omega` six numbers "xy,xz,yz,xw,yw,zw" · `friction` · `time` t: advance t seconds in steps of 1/90 s, then freeze time |
+| Size | `scale` 0.25…4 |
+| Developer | `transparency` additive, sorted, cells · `shadowMethod` light, grounding · `overlay`, `gestureTest`, `fine` (bool) |
+| App | `panel` a tab: object, projection, display, surface, motion, developer · `help` about, a tab or an object · `room` (bool) · `viewpoint` front, right, back, left |
+
+### 12.6 Simulator, device and spikes
+
+- **Simulator loop:** generate, test, build, boot "Apple Vision Pro", install, launch with
+  arguments, take a screenshot with `simctl io`, shut down. The exact commands are in CLAUDE.md.
+  The simulator cannot inject gestures or move windows.
+- **Device loop:** the user runs the app from Xcode and reports back; every round of work ends with
+  a short device checklist in NIGHT_REPORT.md.
+- **Spikes** answered open questions with implementations that stay switchable in the Developer
+  tab:
+  - S1 transparency: all three methods (§11.5); additive is the default.
+  - S2 mesh update: the performance overlay, and *fine subdivision* as a stress test (§13.4).
+  - S3 gestures: the gesture test panel and probe; variant A ships, variant C is only probed.
+  - S4 floor shadow: directional light (default) or grounding shadow (§11.7).
+- **Milestones** [D4], all done: M0 setup and spikes · M1 core maths · M2 first image · M3 display
+  · M4 gestures · M5 large polytopes · M6 surfaces and curves.
+
+---
+
+# Part C: Records
+
+## 13. Lessons from testing
+
+Facts learnt while building and testing that the SDK does not make obvious. The decisions they led
+to are in §15.
+
+### 13.1 Toolchain and simulator
+
+- Xcode 27.1 with the visionOS 27.0 SDK and Swift 6.4. `xcode-select` points to the Command Line
+  Tools, so commands need `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+- `swift`, `xcodebuild`, `xcrun` and `simctl` fail inside Claude Code's sandbox (no xcrun cache, no
+  CoreSimulator) and must run outside it; commands with `cd`, pipes, redirects or `$(...)` stay
+  sandboxed even then.
+- Installing right after booting the simulator fails with `IXErrorDomain code=3 "Failed to locate
+  promise"`; it works about 20 s after `bootstatus -b`.
+- The app needs 3–5 s to launch; an earlier screenshot shows the system's loading placeholder.
+- The simulator renders at 120 Hz. Its timings are rough; only the device counts.
+- In the simulator, the world-tracking device anchor is the space's origin, unturned.
+- `xcodebuild` does not write extracted strings back into the String Catalog; a build in the Xcode
+  IDE does.
+- Installing from Xcode with the 27.0 SDK onto a device with visionOS 27.2 works; the first
+  "Preparing device" takes several minutes over Wi-Fi.
+
+### 13.2 Windows, ornaments and panels
+
+- A window that opens at the default spot in front of the volume makes visionOS push the volume
+  back and dim it, and the system restores such windows at launch [D23, D25].
+- An ornament below the volume hides the volume's window bar and resize corners [D23].
+- Ornaments move with their window and cannot be moved apart from it; they do not turn towards the
+  viewer; their gesture coordinates, also in `.global` and in named spaces, move with them; content
+  outside their bounds is clipped; anchors outside 0…1 work; a `RealityView` in an ornament shows
+  nothing [D23, D35, D38].
+- A segmented `Picker` in an ornament highlighted on look but did not react to taps on the device.
+  Rows of buttons and toggles work.
+- `WindowPlacement` offers only the utility-panel spot and the four sides of an existing window. No
+  API reads or sets a window's position, and scene geometry preferences cover only its size.
+- A second window placed beside the volume opened out of view in the simulator; a window placed
+  below the Controls appears [D40].
+- A placement closure sees only windows that already exist: Info, opened in the same `onAppear` as
+  the Controls, fell back to the utility panel [D40].
+- The volume's size is restored between launches; `defaultSize` only applies to a new window.
+- The simulator granted 0.47 m of the 0.5 m clipping margins requested; the first report, before
+  layout, is 0.
+
+### 13.3 RealityKit
+
+- A `LowLevelMesh` with one interleaved buffer works; its part can be replaced every frame.
+- Creating very large meshes (about 240k vertices) stalls once ("Hang detected while waiting for
+  renderer to free resources"); hence the reuse.
+- `UnlitMaterial.Program(descriptor:)` and its `PhysicallyBasedMaterial` twin are `async`; both
+  materials share one blending type.
+- simd has no `simd_float4x4(simd_double4x4)` initializer; Core4D has `Rotation4D.float(_:)`.
+- Standard materials ignore a `.color` vertex attribute, and their ambient-occlusion map reads uv0,
+  not uv1. So combining a colour source with a pattern needs a `ShaderGraphMaterial`.
+- Additive blending adds translucent layers up to white, so light patterns vanish; sorted keeps
+  them.
+- Floor shadow: a directional light casts clear shadows of the edge tubes; shadows of faces
+  appeared only in some runs; a fixed orthographic shadow projection showed none; a grounding
+  shadow only darkened the whole disc.
+- A `ManipulationComponent` on an entity also takes the grabs on its descendants' input targets
+  [D39].
+- Thick faces show the Klein bottle's seam (its orientation reversal) as a step. Marble reads as
+  stone, wood still looks like corrugated cardboard, and metal reflects the room.
+
+### 13.4 Performance
+
+- Unoptimised Swift is about 40× slower for the pipeline: the stereographic 120-cell took 34.7 ms
+  CPU per frame in Debug and 0.8 ms optimised [D11].
+- Normal settings cost about 1 ms CPU per frame in the simulator (the 120-cell has 81k triangles,
+  the 600-cell 69k).
+- Stress test (120-cell, stereographic, Cells, fine subdivision): 503k triangles and 13–23 ms CPU
+  per frame, of which 2–3 ms is the FrameBuilder; the rest is copying about 17 MB into the meshes.
+  If the device is too slow: a 32-byte vertex and writing straight into the mesh buffers, then,
+  after asking, Metal.
+- Per-cell entities cost about 1 ms per cell per frame: the exploded 600-cell ran at 5 Hz (631 ms)
+  in the simulator and crashed the device; the 120-cell ran at 40 Hz [D31].
+- The exploded 600-cell is slow on the device, although the simulator runs it at 119 Hz with
+  1.2 ms CPU: the GPU is the limit, with many overlapping translucent, reflective layers.
+
+### 13.5 Room and gestures
+
+- `openImmersiveSpace` can fail quietly: on the device the first room button seemed to do nothing,
+  so the app logs and shows the result [D30].
+- A fixed position in the immersive space's coordinates ended up off to the side; placing relative
+  to the head works. A head anchor placed once carries the head's tilt into the content; world
+  tracking gives the pose to level it [D30, D36].
+- Touches outside the volume's bounds are not delivered, so an input target lifted out of the
+  volume stops reacting [D32].
+- A drag gain of 2π per 0.3 m was too sensitive; 10 rad/m felt right on the device [D26].
+
+## 14. Open points
+
+### 14.1 To verify on the device
+
+- Info below the Controls: do the Controls grow into Info when their height changes with the tab?
+  Is Info too low when the Controls are low? [D40]
+- Room: level with a tilted head; world tracking without authorization; dragging the disc;
+  turning and throwing the object [D36, D39].
+- Viewer side: does `onVolumeViewpointChange` fire in the volume, and does *right* mean +x? [D17]
+- Twist: the mirrored quaternion; in the room the twist ignores the room's heading.
+- Closing: do all windows and the room close together [D34], also when another app opens a Full
+  Space?
+- Shadows of faces; sliders and menus in the windows; the device's numbers for S2; variant C (S3).
+
+### 14.2 Known issues
+
+Found in a review of the code on 2026-11-09:
+- `-help <object>` and `-help <tab>` show the text but neither select the object nor switch the
+  tab, as a tap does.
+- Not reachable by launch arguments: 39 of the 56 help topics, "?" together with About, the drag
+  mapping, the armed *Reset all*, the room's error text and the volume size.
+- Projection presets animate with `withAnimation`, which probably moves only the sliders; the
+  shadow jumps.
+- Diagnostics are saved like settings: a session that ended with time frozen starts frozen.
+- Throws reach 4 rad/s, the speed sliders only ±2; Ω from launch arguments or saved settings is not
+  clamped.
+- After switching to an object kind without the chosen colour source, the colour menu shows nothing
+  (the object is drawn uniform).
+- *Reset all*: arming, confirming and arming again within 3 s disarms early, because the timer is
+  not cancelled.
+- The room's error text stays after the room closes. An invalid `-panel` is ignored silently, and
+  an invalid `-help` is not logged.
+- The first and last grid lines of a surface are separate tubes in the same place, which can
+  z-fight in two colours.
+- The material cache grows with every opacity value while the slider moves.
+- Cell entities created after the floor-shadow method changed always use the directional light, so
+  with the grounding method cells cast no shadow.
+- With per-cell transparency, every explode step recreates two meshes per cell.
+- The additive programs are created per renderer, so again whenever the room opens.
+- The room sorts towards +z, not the head. The drag maps in the volume's axes, so seen from behind,
+  right turns −XW.
+- In the room, the Manipulation log also records moves of the disc.
+- App-side gesture logic (catch, throw minimum, twist mirror, magnify clamp) and the choice of
+  texture per colour source are not tested.
+- The String Catalog lags behind the code (6 unused keys, several missing) until the next IDE
+  build. The About page's date is hard-coded. `TessellationOptions.surfaceEdgeStride` is unused.
+
+### 14.3 Proposed simplifications
+
+- **Presets as data:** each preset lists the fields it assigns; applying and matching follow from
+  that, and D13 needs no special case.
+- **One range per field,** used by launch arguments, saved settings, sliders and gestures, Ω
+  included.
+- **One effective-transparency rule** in Core4D: the per-cell limit, pattern → sorted, and programs
+  not ready → sorted.
+- **Help as one optional topic** (none = Info closed), with "?" mode as a separate flag. The volume
+  owns the Controls, the Controls own Info.
+- **Convert gesture rotations** with `EntityTargetValue.convert(_:from:to:)` instead of the
+  hand-written mirror; that also fixes the room's heading.
+- **SceneHost:** drop the unused viewer pose and `tracksVolumeViewpoint`, which equals
+  kind == window; keep one source for the sort direction.
+- **Diagnostics apart from settings:** do not save freeze time, the overlays and fine subdivision.
+- **One uv per point,** set when tessellating; only *by W* changes it every frame.
+
+### 14.4 Later ideas
+
+- Slices by a hyperplane, as in Flatland, and a Flatland mode that shows the same ideas one
+  dimension down.
+- Colour and pattern together (`ShaderGraphMaterial`); image textures and numbers per cell.
+- In the room: sorting by the head pose, hand tracking, shadows on and placement onto real
+  surfaces.
+- Orientation presets (cell first, vertex first); trails of single vertices.
+- The Lawson Klein bottle on S³; more uniform polytopes; named, saved scenes.
+
+## 15. Decision log
+
+Every decision with its date, the sections it shapes and its reason. Replaced decisions stay for
+their reasons and name their successor.
+
+- **D1** · 2026-11-08 · §12.1 — A native Swift app instead of WebXR. *Why:* the best gestures; a
+  real app.
+- **D2** · 2026-11-08 · §12.1 — Test with a free Apple ID (Personal Team) for now. *Why:* enough for
+  development; the Developer Program can follow when needed.
+- **D3** · 2026-11-08 · §8.1 — Gestures: build variant A from standard gestures; probe the one-hand
+  variant C (wrist turn = 3D, hand movement = 4D, via `ManipulationComponent`) only in spike S3.
+  *Why:* standard gestures are robust; C is more elegant but unproven.
+- **D4** · 2026-11-08 · §12.6 — v1 consists of milestones M0–M6. *Why:* the app is usable from M2
+  on, and each milestone is useful on its own.
+- **D5** · 2026-11-08 · §7, §9.3 — The volume is the main place; an immersive space hosts the same
+  content and shares the state, and everything that differs goes through `SceneHost`. *Why:* keeps
+  v1 focused without blocking room scale. D30, D36 and D39 completed the room.
+- **D6** · 2026-11-08 · §12.2 — XcodeGen generates the Xcode project from `project.yml`. *Why:* the
+  project can be versioned and reviewed as text.
+- **D7** · 2026-11-08 · §12.1 — Deployment target visionOS 27.0, the newest. *Why:* the user keeps
+  the device up to date.
+- **D8** · 2026-11-08 · §12.1 — Everything in English; open source under Apache 2.0,
+  © Andreas Keese; git locally first, GitHub later.
+- **D9** · 2026-11-08 · §5 — Projection as two controls, κ and s, with presets. *Why:* one formula
+  covers orthographic, perspective and stereographic projection and lets you morph between them.
+- **D10** · 2026-11-08 · §6 — Display as layers with presets; volumes are cells with explode;
+  colour per cell forces a minimum explode. *Why:* fewer modes and orthogonal controls; a face
+  between two cells can have only one colour.
+- **D11** · 2026-11-08 · §11.9, §12.3 — Core4D (`unsafeFlags` in `Package.swift`) and the app
+  (`SWIFT_OPTIMIZATION_LEVEL` for Debug in `project.yml`) are compiled with `-O` in every
+  configuration; debug info stays. *Why:* the pipeline is about 40× slower unoptimised, and a
+  normal Run from Xcode should show the real speed. Revert locally to step through code in the
+  debugger.
+- **D12** · 2026-11-08 · §11.3 — Double-sided faces are drawn in both windings with back-face
+  culling. *Why:* the same look as no culling, while lit and shadow paths stay uniform. Completed
+  by D16.
+- **D13** · 2026-11-08 · §6.2 — Leaving the *Cells* preset sets explode to 0 and the colour to
+  *by W*. *Why:* otherwise every other preset would still look exploded.
+- **D14** · 2026-11-08 · §10.4 — Subdivide only when s > 0, with fewer levels for large polytopes.
+  *Why:* the projection maps lines to lines, and large polytopes stay within the budget.
+- **D15** · 2026-11-08 · §6.5, §10.8 — Automatic size: the 90th-percentile vertex radius over 32
+  fixed orientations fills 75 % of the smallest side; the user's size is a factor on top. *Why:*
+  every object and projection fills the volume, stereographic outliers do not shrink the rest, and
+  nothing pumps while the object turns. At 80 % the tesseract touched the floor disc. Its rule for
+  thickness was replaced by D28.
+- **D16** · 2026-11-08 · §11.3 — Every face triangle has a front copy, whose normal follows its
+  winding, and a back copy with reversed winding and negated normal. *Why:* lit materials look
+  right from every side without knowing the viewer; it costs twice the face vertices, little next
+  to the tubes.
+- **D17** · 2026-11-08 · §7.1, §11.5 — The volume sorts towards the viewer's side
+  (`onVolumeViewpointChange`, four sides); the head pose only later, in the room. *Why:* the shared
+  space gives no head pose, and four sides are much better than a fixed +z.
+- **D18** · 2026-11-08 · §4 — The start and reset orientation is a 3D tilt: 35° in XZ, then 25° in
+  YZ. *Why:* the tesseract starts as the classic cube inside a cube, seen at an angle;
+  axis-aligned views hide edges behind each other.
+- **D19** · 2026-11-08 · §7.1 — The volume is a 1 m box by default and resizable, at least 0.5 m;
+  its measured size is the host's bounds, so size, floor disc and input target follow. *Why:* a
+  0.8 m box looked small on the device, and resizing is the standard way to make a window bigger.
+- **D20** · 2026-11-08 · §6.4 — An optional axes layer: the four 4D axes, rotated and projected
+  like the object, coloured and labelled. *Why:* it shows how the four directions map into the
+  shadow; W grows from a point as the object turns into it.
+- **D21** · 2026-11-08 · §6.5, §10.8 — With a size factor above 1 the object rises, so the bottom of
+  its fitted radius stays where it is at factor 1. *Why:* enlarged objects sank into the floor
+  disc; the rule does not depend on the rotation, so the object does not bob.
+- **D22** · 2026-11-08 · §8.3, §8.4 — Help: a "?" mode in which a tap explains a control instead of
+  using it, and explaining an object also shows it; an About page; *Reset all* with a second tap to
+  confirm. *Why:* the app explains itself; the volume is the best picture of an object; two taps
+  work where a dialog might not.
+- **D23** · 2026-11-08 · §8.2 — *Replaced by D25.* The controls in an ornament left of the volume,
+  help in one right of it, and no second window. *Why:* a panel below the volume hid its window bar
+  and resize corners, and a separate help window was restored at launch in front of the volume,
+  which visionOS then pushed back and dimmed.
+- **D24** · 2026-11-08 · §6.3 — The Surface tab: three more materials (metal, ceramic, frosted
+  glass), image patterns drawn in code and fixed in 4D that replace the face colour, and thick
+  faces. *Why:* the user wanted to try all three. Standard materials ignore vertex colours, so
+  colour and pattern together need a custom shader; a pattern fixed in 4D shows the projection's
+  distortion; additive blending washes patterns out, so a pattern switches to sorted.
+- **D25** · 2026-11-08 · §8.2 — Controls and Info are separate windows; the Controls open left of
+  the volume; neither launches by itself nor is restored by the system; the volume opens the
+  Controls. Replaces D23. *Why:* the user wants to move the panels, and ornaments cannot be moved
+  apart from their window; placing the windows explicitly avoids D23's push-back. Trade-off: the
+  panels do not follow when the volume moves.
+- **D26** · 2026-11-08 · §8.1, §10.7 — Drag gain k = 10 rad/m, a full turn per 0.63 m, adjustable
+  from 2 to 18 in the Developer tab. *Why:* 2π per 0.3 m was too sensitive; the user chose 10 on
+  the device.
+- **D27** · 2026-11-08 · §7.1 — The volume requests clipping margins of 0.5 m on every side. *Why:*
+  the user dislikes the clipping at the walls; margins let large shadows reach out while keeping a
+  window. The system may grant less. A full immersive space would remove all limits but hides
+  other apps.
+- **D28** · 2026-11-08 · §6.5, §10.8 — Edge and face thickness keep their size in metres when the
+  object is zoomed or the window resized: a fixed length per host, with a reference box of 1 m in
+  the volume and 2 m in the room. *Why:* the user: "when I zoom or pinch in, the edges should not
+  scale". Face thickness follows, so edges still cover the rims of thick faces.
+- **D29** · 2026-11-08 · §9.4 — Settings are kept between launches: every stage except the
+  orientation, plus the drag mapping, as JSON in the user defaults; each part decodes on its own;
+  any recognised launch argument means snapshot mode. *Why:* the user wants the settings kept; the
+  orientation always starts at the tilt; per-part decoding keeps most settings across updates;
+  snapshots stay reproducible.
+- **D30** · 2026-11-08 · §7.2 — The room places the content once, 2 m in front of the viewer and
+  15 cm below eye level, in a 2.4 × 2 × 2.4 m box; the volume is empty while the room is open;
+  opening reports failures. *Why:* the room button seemed to do nothing on the device, and a fixed
+  position in the space was off to the side. D36 made the placement level.
+- **D31** · 2026-11-08 · §11.5 — Per-cell entities only with explode and at most 48 cells; the 120-
+  and 600-cell use sorted instead. *Why:* the device crashed on the exploded 600-cell; per-cell
+  entities cost about 1 ms per cell per frame (§13.4).
+- **D32** · 2026-11-08 · §11.8 — In the volume the input target is a sphere that fills it, centred
+  and never lifted; in the room it follows size and lift. Gestures accept only entities with a
+  `ShadowInputComponent`. *Why:* an enlarged object stopped reacting, because its lifted input
+  sphere left the volume, where touches are not delivered; targeting by component keeps other
+  touchable entities, such as the room's disc, from turning the object.
+- **D33** · 2026-11-08 · §7.2 — *Replaced by D39.* In the room the floor disc redirects the system's
+  manipulation to the content root, so dragging it moves everything. *Why:* the user wanted to move
+  the room object by its disc.
+- **D34** · 2026-11-08 · §8.2 — Closing the volume or the Controls closes the app: both set
+  `isClosing`, and then every window and the room close themselves. *Why:* one close should end
+  the app, and a window that is going away may no longer be able to close the others [verify].
+- **D35** · 2026-11-09 · §8.2 — *Reverted by D38.* Controls and Info as ornaments of the volume, each
+  with a grab bar, their places saved relative to the volume. *Why:* the user wanted the panels to
+  stay where they put them, relative to the object and across launches, which windows cannot do.
+- **D36** · 2026-11-09 · §7.2, §10.9 — The room content is placed level: at the head's position and
+  heading without pitch and roll, from ARKit world tracking queried once (a head anchor only as
+  fallback); the content stays upright. *Why:* the head's tilt at opening tilted the content, and
+  dragging the disc tilted the object.
+- **D37** · 2026-11-09 · §7.2, §8.3 — *Open in room* is on the Display tab and no longer marked
+  experimental. *Why:* the room works.
+- **D38** · 2026-11-09 · §8.2 — D35 reverted: the panels are windows again (D25, D34), and their
+  places are not saved. *Why:* on the device, a panel moved in front of the volume could no longer
+  be grabbed by its bar and could not be moved away from the volume, the panels did not turn
+  towards the viewer, and Info behaved oddly.
+- **D39** · 2026-11-09 · §7.2, §11.8 — The room's floor disc carries its own `ManipulationComponent`
+  (translation only), as a sibling of the content root; the root follows the disc every frame.
+  Replaces D33. *Why:* with the manipulation on the root, grabbing the object moved everything
+  instead of turning it.
+- **D40** · 2026-11-09 · §8.2 — Info opens below the Controls (at the utility-panel spot only if the
+  Controls are closed), and the Controls open Info at launch when help is asked for. *Why:*
+  visionOS cannot save a window's place, but placing Info by the Controls keeps it near wherever
+  the user moved them; below rather than beside, because the wide Controls could push Info onto the
+  volume. Risks: §14.1.
+
+## 16. Glossary
 
 - **Cell:** a 3D boundary body of a 4D polytope. The tesseract has 8 cubes, the 120-cell 120
   dodecahedra.
-- **Rotation plane:** in 4D you rotate in planes, not around axes. There are 6: XY, XZ, YZ, XW, YW,
-  ZW.
-- **Isoclinic (Clifford) rotation:** simultaneous rotation at equal speed in two perpendicular
-  planes, e.g. XY and ZW. Every point moves on a great circle.
-- **S³ (3-sphere):** the set of points in ℝ⁴ at distance 1 from the origin.
-- **Stereographic projection:** projection of S³ from the north pole into 3D space. It preserves
-  circles and angles.
-- **Schlegel diagram:** a perspective image of a polytope in which one cell becomes the outer hull
-  ("cube within a cube").
-- **Duoprism p×q:** the product of a p-gon and a q-gon. The 4×4 duoprism is the tesseract.
-- **Clifford torus:** a flat torus on S³. Projected stereographically it appears as an ordinary
+- **Clifford torus:** a flat torus on S³. Projected stereographically, it looks like an ordinary
   torus.
+- **Duoprism p×q:** the product of a p-gon and a q-gon. The 4×4 duoprism is the tesseract.
+- **Explode:** shrinking every cell towards its centre, so that the cells come apart.
+- **Flatland:** Edwin A. Abbott's 1884 novella about a two-dimensional world (§1).
+- **Host:** the scene that shows the content, the volume or the room (`SceneHost`).
 - **Hopf fibration:** a decomposition of S³ into great circles (fibres), any two of which are
   linked.
+- **Isoclinic (Clifford) rotation:** rotation at the same speed in two perpendicular planes, such as
+  XY and ZW. Every point moves on a great circle.
+- **Ornament:** a SwiftUI panel attached to a window, which moves with it.
+- **Projection:** here, the map from 4D to 3D along W that makes the shadow (§5).
+- **Rotation plane:** in 4D you rotate in planes, not about axes. There are six: XY, XZ, YZ, XW, YW
+  and ZW.
+- **S³ (3-sphere):** the points of ℝ⁴ at distance 1 from the origin.
+- **Schlegel diagram:** a perspective image of a polytope in which one cell becomes the outer hull
+  ("cube inside a cube").
+- **Spherize:** moving every point towards its position on S³ (§5).
+- **Stereographic projection:** projection of S³ from the north pole into 3D space. It preserves
+  circles and angles.
+- **Tesseract:** the 4D cube, with 16 vertices, 32 edges, 24 squares and 8 cubes.
+- **Volume:** a volumetric window, a box in space that shares the room with other apps.

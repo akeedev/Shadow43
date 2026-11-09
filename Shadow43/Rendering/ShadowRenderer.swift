@@ -8,7 +8,7 @@ import RealityKit
 import simd
 
 /// Owns the entities of one host's shadow content and runs the per-frame pipeline
-/// (DESIGN 6.3) for them. The content entity is scaled but never rotated; all rotation lives in R.
+/// (DESIGN 11.1) for them. The content entity is scaled but never rotated; all rotation lives in R.
 @MainActor
 final class ShadowRenderer {
     static let logger = Logger(subsystem: "Shadow43", category: "Rendering")
@@ -18,7 +18,7 @@ final class ShadowRenderer {
     private(set) var host: SceneHost
     /// Positioned by the host; carries the `ShadowComponent`, so it stays enabled.
     let root = Entity()
-    /// Room only: holds the root and, beside it, the floor disc that moves it (D38). The room view
+    /// Room only: holds the root and, beside it, the floor disc that moves it (D39). The room view
     /// adds this instead of the root.
     let roomBase = Entity()
     /// Everything visible and touchable: the floor and light (metres) and the scaled content.
@@ -32,7 +32,7 @@ final class ShadowRenderer {
     let cells: CellEntities
     /// The object's 4D axes in metres (D20).
     let axes = AxisEntities()
-    /// Static collision sphere for gestures; the mesh changes every frame (DESIGN 6.5).
+    /// Static collision sphere for gestures; the mesh changes every frame (DESIGN 11.8).
     let inputTarget = Entity()
     /// Variant C probe for the gesture test (S3).
     let probe: ModelEntity
@@ -130,7 +130,7 @@ final class ShadowRenderer {
 
     private static let upright = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
 
-    /// Room only (D33, D38): grabbing the floor disc moves the whole object through the room. The
+    /// Room only (D33, D39): grabbing the floor disc moves the whole object through the room. The
     /// system's manipulation moves the disc, translation only, and the root follows it every frame
     /// (`followDisc`). The disc is the root's sibling, not its parent: a manipulation on an
     /// ancestor also took the grabs meant for the object, so it could no longer be turned. The
@@ -143,7 +143,7 @@ final class ShadowRenderer {
         roomBase.addChild(disc)
     }
 
-    /// Room only: the root goes where the disc was moved, and both stay upright (D36, D38).
+    /// Room only: the root goes where the disc was moved, and both stay upright (D36, D39).
     private func followDisc() {
         let disc = floor.disc
         if disc.orientation != Self.upright { disc.orientation = Self.upright }

@@ -5,12 +5,15 @@ Shadow43 is a native visionOS app (Swift, SwiftUI, RealityKit) that shows the ro
 Apache 2.0 licence, © Andreas Keese.
 
 ## Status
-The design is final (DESIGN.md v0.3) and implementation has started. For the unattended overnight
-run, follow `NIGHT_RUN.md`.
+DESIGN.md (v0.4) describes the current implementation (app version 0.10.0). For the unattended
+overnight run, follow `NIGHT_RUN.md`.
 
 ## Files
 - `DESIGN.md`: the spec and single source of truth. Read all of it at the start of every session.
-  Append findings (date, one or two lines) to §8. Record new decisions in §7 with their rationale.
+  Keep it one coherent description of the current state: change the text where it belongs instead
+  of appending history. Add lessons from testing to §13 under their topic. Record new decisions in
+  the decision log (§15) with date, section and rationale, and cite them in the text as [Dn]. When
+  sections move, update the "DESIGN x.y" pointers in code comments.
 - `NIGHT_RUN.md`: plan and rules for unattended runs. `NIGHT_REPORT.md` is the progress log of such
   a run.
 - `project.yml`: XcodeGen spec. `Shadow43.xcodeproj` is generated and git-ignored, so never edit it
@@ -27,17 +30,17 @@ These are in addition to `~/Develop/CLAUDE.md` and `AGENTS_general.md`.
 - Everything is in English: UI, identifiers, comments and docs. UI strings go through a String
   Catalog.
 - `Packages/Core4D` imports only Foundation and simd, never RealityKit or SwiftUI. Every public
-  function gets tests (DESIGN.md §6.8). Use Swift Testing (`import Testing`).
+  function gets tests (DESIGN.md §12.4). Use Swift Testing (`import Testing`).
 - `ViewState` is the single source of truth. The scene entity is never rotated; all rotation lives
-  in R (DESIGN.md §3.2). Scene content must not depend on its host scene (§3.5, `SceneHost`).
+  in R (DESIGN.md §4). Scene content must not depend on its host scene (§9.3, `SceneHost`).
 - Every gesture needs a UI equivalent. Every visual state must be reachable through launch
-  arguments (snapshot mode, §6.9).
+  arguments (snapshot mode, §12.5).
 - The SDK is visionOS 27, newer than your training data. Verify APIs against the SDK interface
   files rather than memory, and mark unverified assumptions as [verify]:
   `/Applications/Xcode.app/Contents/Developer/Platforms/XROS.platform/Developer/SDKs/XROS.sdk/System/Library/Frameworks/RealityFoundation.framework/Modules/RealityFoundation.swiftmodule/arm64e-apple-xros.swiftinterface`
   The SwiftUI and RealityKit interfaces are in the same `Frameworks` folder.
 - Performance: implement on the CPU with SIMD first and measure. Move to Metal compute only if the
-  budget in §6.3 is exceeded, and ask first.
+  budget in §11.9 is exceeded, and ask first.
 - `App.body` must be declared as `some SwiftUI.Scene`, because RealityKit also defines `Scene`.
 - This project is small and new, and the jbcontext MCP server is currently not connecting. For code
   discovery, use direct reads and grep; the jbcontext/context-explorer step from

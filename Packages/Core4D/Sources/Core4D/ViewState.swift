@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// The objects the app can show (DESIGN 3.1). The raw value is the launch-argument name.
+/// The objects the app can show (DESIGN 3). The raw value is the launch-argument name.
 public enum ObjectID: String, Codable, CaseIterable, Sendable {
     case fiveCell = "5-cell"
     case tesseract
@@ -32,7 +32,7 @@ public enum ObjectKind: String, Codable, Sendable {
     case polytope, surface, curves
 }
 
-/// Projection stage: perspective strength κ and spherize s (DESIGN 3.3).
+/// Projection stage: perspective strength κ and spherize s (DESIGN 5).
 public struct ProjectionSettings: Codable, Equatable, Sendable {
     /// κ, the reciprocal of the eye distance along W. 0 = orthographic.
     public var kappa: Double
@@ -45,7 +45,7 @@ public struct ProjectionSettings: Codable, Equatable, Sendable {
     }
 }
 
-/// Colour source for faces and (optionally) edges (DESIGN 3.4).
+/// Colour source for faces and (optionally) edges (DESIGN 6.3).
 public enum ColorSource: String, Codable, CaseIterable, Sendable {
     case uniform
     case byW = "by-w"
@@ -82,11 +82,11 @@ public enum EdgeColorMode: String, Codable, CaseIterable, Sendable {
     case light
 }
 
-/// The display layers (DESIGN 3.4).
+/// The display layers (DESIGN 6.1).
 public struct DisplaySettings: Codable, Equatable, Sendable {
     public var edgesVisible: Bool
-    /// Tube radius as a fraction of the fitted object radius (D15), so tubes keep their size in
-    /// metres across objects and projections.
+    /// Tube radius as a fixed length: value × 0.375 m in the volume, twice that in the room, so
+    /// tubes keep their size in metres when zoomed or resized (D28).
     public var edgeThickness: Double
     public var edgeColor: EdgeColorMode
     /// Face opacity 0…1.
@@ -95,13 +95,13 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
     public var faceStyle: FaceStyle
     /// Explode fraction 0…0.4: each cell shrinks towards its centre.
     public var explode: Double
-    /// Shadow of the shadow on the floor disc (DESIGN 3.5).
+    /// Shadow of the shadow on the floor disc (DESIGN 6.4).
     public var floorShadow: Bool
     /// The object's four 4D axes, rotated and projected with it (D20).
     public var axesVisible: Bool
     /// Image pattern on the faces (D24).
     public var pattern: SurfacePattern
-    /// Thickness of the faces as a fraction of the fitted object radius, 0 = thin films (D24).
+    /// Thickness of the faces, a fixed length like `edgeThickness`; 0 = thin films (D24, D28).
     public var faceThickness: Double
 
     public init(edgesVisible: Bool, edgeThickness: Double, edgeColor: EdgeColorMode,
@@ -132,7 +132,7 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
     public static let thicknessRange: ClosedRange<Double> = 0.002...0.04
 
     /// The explode fraction actually used for an object kind. Per-cell colour forces a
-    /// minimum of 5 %, because every face belongs to two cells (DESIGN 3.4, D10).
+    /// minimum of 5 %, because every face belongs to two cells (DESIGN 6.3, D10).
     public func effectiveExplode(for kind: ObjectKind) -> Double {
         guard kind == .polytope else { return 0 }
         if colorSource == .perCell { return max(explode, Self.perCellMinimumExplode) }
@@ -146,7 +146,7 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
     }
 }
 
-/// Motion stage: angular velocity Ω and friction (DESIGN 3.2). The orientation R is kept
+/// Motion stage: angular velocity Ω and friction (DESIGN 4). The orientation R is kept
 /// separately in `ViewState.orientation`.
 public struct MotionSettings: Codable, Equatable, Sendable {
     public var omega: AngularVelocity4D
@@ -163,7 +163,7 @@ public struct MotionSettings: Codable, Equatable, Sendable {
     public static let speedRange: ClosedRange<Double> = -2...2
 }
 
-/// Transparency method for faces with opacity below 100 % (spike S1, DESIGN 6.5).
+/// Transparency method for faces with opacity below 100 % (spike S1, DESIGN 11.5).
 public enum TransparencyMethod: String, Codable, CaseIterable, Sendable {
     /// `.add` blending without depth writes: order independent, glowing look.
     case additive
@@ -188,7 +188,7 @@ extension TransparencyMethod {
     }
 }
 
-/// How the floor shadow is made (spike S4, DESIGN 6.5).
+/// How the floor shadow is made (spike S4, DESIGN 11.7).
 public enum FloorShadowMethod: String, Codable, CaseIterable, Sendable {
     /// `DirectionalLightComponent` with a shadow onto the floor disc.
     case directionalLight = "light"
@@ -196,7 +196,7 @@ public enum FloorShadowMethod: String, Codable, CaseIterable, Sendable {
     case grounding
 }
 
-/// Settings of the collapsed Developer section (DESIGN 3.6).
+/// Settings of the Developer tab (DESIGN 8.3).
 public struct DeveloperSettings: Codable, Equatable, Sendable {
     public var floorShadowMethod: FloorShadowMethod = .directionalLight
     public var transparency: TransparencyMethod
@@ -255,7 +255,7 @@ extension Orientation4D {
                                                 * Rotation4D.plane(.xz, angle: 35 * .pi / 180))
 }
 
-/// The single source of truth for what is shown (DESIGN 6.2). Presets are named partial
+/// The single source of truth for what is shown (DESIGN 9.2). Presets are named partial
 /// assignments of it; it is `Codable` for launch arguments, snapshots and saving later.
 public struct ViewState: Codable, Equatable, Sendable {
     public var object: ObjectID

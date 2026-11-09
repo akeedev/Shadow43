@@ -17,7 +17,7 @@ public struct MeshVertex: Sendable {
     }
 }
 
-/// How the colour key becomes a texture coordinate (DESIGN 3.4, 6.5).
+/// How the colour key becomes a texture coordinate (DESIGN 6.3, 11.6).
 public enum FrameColorMode: Equatable, Sendable {
     /// One colour: the centre of the texture.
     case uniform
@@ -46,7 +46,7 @@ public enum FrameColorMode: Equatable, Sendable {
     }
 }
 
-/// Everything the per-frame pipeline depends on (DESIGN 6.3).
+/// Everything the per-frame pipeline depends on (DESIGN 11.1).
 public struct FrameParameters: Equatable, Sendable {
     public var rotation: simd_float4x4
     public var kappa: Float
@@ -90,7 +90,7 @@ public struct FrameParameters: Equatable, Sendable {
     }
 }
 
-/// Per-frame pipeline on the CPU (DESIGN 6.3, steps 2–5): rotate, spherize, project, cull,
+/// Per-frame pipeline on the CPU (DESIGN 11.1, steps 2–5): rotate, spherize, project, cull,
 /// recompute normals, build tubes and texture coordinates. Buffers are allocated once at their
 /// maximum size and reused; the `…Count` properties say how much of them is in use.
 ///

@@ -4,7 +4,7 @@ import Core4D
 import Foundation
 import os
 
-/// Snapshot mode (DESIGN 6.9): launch arguments such as `-object tesseract -time 1.5` arrive in
+/// Snapshot mode (DESIGN 12.5): launch arguments such as `-object tesseract -time 1.5` arrive in
 /// the `UserDefaults` argument domain and are turned into a `ViewState`.
 /// See `LaunchConfiguration` in Core4D for the recognised keys.
 enum SnapshotMode {

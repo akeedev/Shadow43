@@ -5,7 +5,7 @@ import Foundation
 import Metal
 import RealityKit
 
-/// The small textures behind the colour sources (DESIGN 3.4, 6.5): every colour source is a
+/// The small textures behind the colour sources (DESIGN 6.3, 11.6): every colour source is a
 /// texture coordinate plus one of these.
 enum ColorTexture: Hashable {
     /// One colour (uniform faces).

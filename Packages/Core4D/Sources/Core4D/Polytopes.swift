@@ -3,7 +3,7 @@
 import Foundation
 import simd
 
-/// Inputs for the polytope generator (DESIGN 6.6, table "Inputs").
+/// Inputs for the polytope generator (DESIGN 10.5, table "Inputs").
 public enum Polytopes {
     public static let goldenRatio = (1 + sqrt(5.0)) / 2
 

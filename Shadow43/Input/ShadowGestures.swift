@@ -7,7 +7,7 @@ import simd
 import Spatial
 import SwiftUI
 
-/// Gestures, variant A (DESIGN 3.6, 6.4): standard visionOS gestures on the content's input
+/// Gestures, variant A (DESIGN 8.1, 10.7): standard visionOS gestures on the content's input
 /// target. Every gesture has a control-panel equivalent (Motion section).
 ///
 /// - Pinch + drag: 4D rotation, the drag direction tips towards W.

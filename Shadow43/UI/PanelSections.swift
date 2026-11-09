@@ -36,7 +36,7 @@ struct ObjectSection: View {
     }
 }
 
-/// Projection: three presets plus the κ and s sliders (DESIGN 3.3).
+/// Projection: three presets plus the κ and s sliders (DESIGN 5).
 struct ProjectionSection: View {
     @Environment(AppModel.self) private var model
 
@@ -60,7 +60,7 @@ struct ProjectionSection: View {
     }
 }
 
-/// Display: four presets plus the layer controls (DESIGN 3.4).
+/// Display: four presets plus the layer controls (DESIGN 6).
 struct DisplaySection: View {
     @Environment(AppModel.self) private var model
 
@@ -192,7 +192,7 @@ struct SurfaceSection: View {
     }
 }
 
-/// Motion: presets, friction, Stop, Reset and one speed slider per plane (DESIGN 3.2).
+/// Motion: presets, friction, Stop, Reset and one speed slider per plane (DESIGN 4).
 struct MotionSection: View {
     @Environment(AppModel.self) private var model
 
@@ -296,7 +296,7 @@ struct SelectButton: View {
 }
 
 /// A title and one `SelectButton` per option; replaces segmented pickers, which did not react to
-/// taps in the ornament on the device (DESIGN §8).
+/// taps in the ornament on the device (DESIGN 13.2).
 struct OptionRow<Option: Hashable>: View {
     let title: LocalizedStringKey
     var titleWidth: CGFloat?

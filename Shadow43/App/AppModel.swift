@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import simd
 
-/// The app's observable copy of `ViewState`, shared by every scene (DESIGN 6.2).
+/// The app's observable copy of `ViewState`, shared by every scene (DESIGN 9.2).
 ///
 /// Each stage is its own stored property so that SwiftUI views only update when the stage they
 /// show changes. The orientation R changes every frame and is therefore not observed.
@@ -64,7 +64,7 @@ final class AppModel {
     var viewSide: ViewSide { viewSideOverride ?? systemViewSide }
     /// Latest performance numbers from the render system (performance overlay, S2).
     var stats = RenderStats()
-    /// Gesture → rotation mapping (k and sign, DESIGN 6.4).
+    /// Gesture → rotation mapping (k and sign, DESIGN 10.7).
     var gestureMapping = GestureMapping()
     /// Raw gesture values for the gesture test (S3).
     let gestureLog = GestureLog()
@@ -129,7 +129,7 @@ final class AppModel {
 
     @ObservationIgnored private var lastTick: TimeInterval?
 
-    /// Advances the motion once per frame (DESIGN 6.3, step 1). Every host's renderer calls it;
+    /// Advances the motion once per frame (DESIGN 11.1, step 1). Every host's renderer calls it;
     /// calls less than 2 ms apart belong to the same frame and are ignored, so two open scenes
     /// do not rotate twice as fast. Returns whether R changed.
     @discardableResult
@@ -150,7 +150,7 @@ final class AppModel {
         return true
     }
 
-    /// Applies launch arguments (snapshot mode, DESIGN 6.9).
+    /// Applies launch arguments (snapshot mode, DESIGN 12.5).
     func apply(_ config: LaunchConfiguration) {
         var state = config.state
         if let t = config.time { state = LaunchConfiguration.integrate(state, time: t) }
@@ -173,7 +173,7 @@ final class AppModel {
     var effectiveExplode: Double { display.effectiveExplode(for: object.kind) }
 }
 
-/// Tabs of the control panel (DESIGN 3.6). The raw value is the `-panel` launch argument.
+/// Tabs of the control panel (DESIGN 8.3). The raw value is the `-panel` launch argument.
 enum PanelTab: String, CaseIterable, Identifiable {
     case object, projection, display, surface, motion, developer
     var id: String { rawValue }
