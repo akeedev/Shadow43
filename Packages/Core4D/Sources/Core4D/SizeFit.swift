@@ -3,6 +3,12 @@
 import Foundation
 import simd
 
+/// The volume's size (D19): a 1 m box by default, which the user can resize down to 0.5 m.
+public enum VolumeSize {
+    public static let defaultSize = SIMD3<Double>(1, 1, 1)
+    public static let minimumSide = 0.5
+}
+
 /// Automatic object size (D15): every object is scaled so that the radius holding 90 % of its
 /// projected vertices fills a fixed fraction of the host box. The radius is measured over a fixed
 /// set of orientations rather than the current one, so the size does not pump while the object

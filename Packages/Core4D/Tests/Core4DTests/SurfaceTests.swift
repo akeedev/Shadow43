@@ -92,6 +92,23 @@ struct SurfaceTests {
         #expect(c.edges.count == 5 + 3)
         #expect(c.edges[0].count == 5)
         #expect(c.edges[5].count == 9)
+        // Closed: the last line lies on the first and gets no tube of its own.
+        let closed = Surfaces.grid(nU: 8, nV: 4, uRange: 0...1, vRange: 0...1, edgeStride: 2, closed: true) { u, v in
+            [u, v, 0, 0]
+        }
+        #expect(closed.edges.count == 4 + 2)
+    }
+
+    @Test(arguments: [ObjectID.kleinBottle, .cliffordTorus])
+    func closedSurfacesHaveNoDoubleSeamLines(_ id: ObjectID) {
+        // No two edge polylines may cover the same points (two tubes in one place flicker).
+        let c = ObjectCatalog.complex(for: id, duoprism: DuoprismParameters(p: 3, q: 4))
+        #expect(c.edges.count == (id == .kleinBottle ? 72 / 6 + 36 / 6 : 2 * 64 / 8))
+        func key(_ p: SIMD4<Double>) -> [Int] { (0..<4).map { Int((p[$0] * 1e6).rounded()) } }
+        let sets = c.edges.map { Set($0.map { key(c.vertices[$0]) }) }
+        for i in sets.indices {
+            for j in sets.indices where j > i { #expect(sets[i] != sets[j], "lines \(i) and \(j) coincide") }
+        }
     }
 
     @Test func surfaceMeshSharesPointsAndUsesUV() {

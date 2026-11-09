@@ -316,6 +316,40 @@ Device checklist:
 - Switch tabs with Info open: do the Controls grow into Info?
 - Close Info and open it again: is it below the Controls again?
 
+## Review fixes (2026-11-09, version 0.11.0, D41–D51)
+
+DESIGN.md was checked against the code, and the issues from the review are fixed. Changes you can
+see:
+- Speeds: the plane sliders go to ±4 rad/s, the same range as throws.
+- Projection presets: the shadow morphs to the preset in 0.6 s instead of jumping.
+- Grabbing: a quick tap or double tap no longer stops the motion. A hold of 0.25 s or a 5 mm move
+  does.
+- Twist: it now uses the SDK's rotation conversion, which also covers the room.
+- Room: sorted faces (with a pattern) are sorted towards your head.
+- Display presets: each one sets the explode. A preset is highlighted exactly when tapping it
+  would change nothing.
+- Help: the tabs get a dashed outline in "?" mode, and the Controls own Info. About shows the build
+  date.
+- Curves: Edges on/off and Face opacity are disabled for curves.
+- Saved settings: the diagnostics (freeze time, overlay, gesture test, fine subdivision) are no
+  longer saved.
+- Launch arguments: all 56 help topics are reachable, and `-helpMode`, `-dragGain`, `-invertDrag`
+  and `-volumeSize` are new.
+
+Simulator: `-help kappa`, `-helpMode 1` with the Hopf fibration, `-volumeSize`, and the triangle
+counts in DESIGN §13.4 were checked.
+
+Device checklist:
+- Double-tap a turning object: does it go back to the start and keep turning?
+- Pinch and hold the object without moving: does it stop after a moment? Grab and drag at once:
+  does it stop and turn?
+- Two-hand twist, in the volume and in the room after turning your body: does the object turn the
+  way your hands do?
+- Throw hard: do the Motion sliders show up to ±4, and is that too fast?
+- Tap Perspective, then Stereographic: does the shadow morph smoothly?
+- Room with a pattern (Surface tab), walking round the object: do the faces stay in order?
+- "?" mode: are the tabs outlined, and does tapping one switch to it and explain it?
+
 ## Files
 New, unless marked as changed.
 - **Root:** `project.yml`, `NIGHT_REPORT.md`; changed: `DESIGN.md` (§7 D11–D14, §8 findings),

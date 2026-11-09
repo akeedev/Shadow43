@@ -5,7 +5,7 @@ Shadow43 is a native visionOS app (Swift, SwiftUI, RealityKit) that shows the ro
 Apache 2.0 licence, © Andreas Keese.
 
 ## Status
-DESIGN.md (v0.4) describes the current implementation (app version 0.10.0). For the unattended
+DESIGN.md (v0.5) describes the current implementation (app version 1.0.0). For the unattended
 overnight run, follow `NIGHT_RUN.md`.
 
 ## Files

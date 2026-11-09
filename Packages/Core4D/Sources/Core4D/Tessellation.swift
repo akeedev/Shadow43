@@ -57,13 +57,10 @@ public struct RenderMesh4D: Sendable {
 public struct TessellationOptions: Equatable, Sendable {
     public var edgeSegments: Int
     public var faceSubdivision: Int
-    /// For parametric surfaces: every k-th grid line becomes an edge.
-    public var surfaceEdgeStride: Int
 
-    public init(edgeSegments: Int = 8, faceSubdivision: Int = 3, surfaceEdgeStride: Int = 4) {
+    public init(edgeSegments: Int = 8, faceSubdivision: Int = 3) {
         self.edgeSegments = edgeSegments
         self.faceSubdivision = faceSubdivision
-        self.surfaceEdgeStride = surfaceEdgeStride
     }
 
     /// Smooth arcs are only needed when s > 0, because the projection maps lines to lines.

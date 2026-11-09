@@ -43,6 +43,9 @@ public struct ProjectionSettings: Codable, Equatable, Sendable {
         self.kappa = kappa
         self.spherize = spherize
     }
+
+    /// Range of κ and of s.
+    public static let range: ClosedRange<Double> = 0...1
 }
 
 /// Colour source for faces and (optionally) edges (DESIGN 6.3).
@@ -123,6 +126,8 @@ public struct DisplaySettings: Codable, Equatable, Sendable {
 
     /// Range of the face thickness control.
     public static let faceThicknessRange: ClosedRange<Double> = 0...0.08
+    /// Range of the face opacity.
+    public static let opacityRange: ClosedRange<Double> = 0...1
 
     /// Range of the explode control.
     public static let explodeRange: ClosedRange<Double> = 0...0.4
@@ -159,8 +164,9 @@ public struct MotionSettings: Codable, Equatable, Sendable {
     }
 
     public static let frictionRange: ClosedRange<Double> = 0...2
-    /// Range of each per-plane speed slider, radians per second.
-    public static let speedRange: ClosedRange<Double> = -2...2
+    /// Range of each plane's speed in radians per second, for the sliders, throws, launch
+    /// arguments and saved settings alike (D41).
+    public static let speedRange: ClosedRange<Double> = -4...4
 }
 
 /// Transparency method for faces with opacity below 100 % (spike S1, DESIGN 11.5).
@@ -180,11 +186,20 @@ extension TransparencyMethod {
     /// stopped (D31). Above this many cells, sorted is used instead.
     public static let maxCellsForPerCellEntities = 48
 
-    /// The method actually used for an object with `cellCount` cells: per-cell entities need
-    /// explode > 0 and at most `maxCellsForPerCellEntities` cells, otherwise sorted.
-    public func effective(cellCount: Int, explode: Double) -> TransparencyMethod {
-        guard self == .perCellEntities else { return self }
-        return explode > 0 && cellCount <= Self.maxCellsForPerCellEntities ? self : .sorted
+    /// The method actually used, the one rule for every fallback (D47); each falls back to sorted:
+    /// - per-cell entities need explode > 0 and at most `maxCellsForPerCellEntities` cells (D31);
+    /// - additive blending adds light patterns up to white (D24), and its `.add` programs are
+    ///   created asynchronously, so until they are ready it cannot be drawn.
+    public func effective(cellCount: Int, explode: Double, hasPattern: Bool = false,
+                          additiveReady: Bool = true) -> TransparencyMethod {
+        switch self {
+        case .sorted:
+            return .sorted
+        case .perCellEntities:
+            return explode > 0 && cellCount <= Self.maxCellsForPerCellEntities ? self : .sorted
+        case .additive:
+            return !hasPattern && additiveReady ? self : .sorted
+        }
     }
 }
 
@@ -214,6 +229,14 @@ public struct DeveloperSettings: Codable, Equatable, Sendable {
         self.showsGestureTest = showsGestureTest
         self.freezesTime = freezesTime
         self.forcesFineSubdivision = forcesFineSubdivision
+    }
+
+    /// The part kept between launches (D43): the two methods, which choose a look. The
+    /// diagnostics (overlay, gesture test, frozen time, fine subdivision) start off every time.
+    public var withoutDiagnostics: DeveloperSettings {
+        var d = DeveloperSettings(transparency: transparency)
+        d.floorShadowMethod = floorShadowMethod
+        return d
     }
 }
 
@@ -287,6 +310,24 @@ public struct ViewState: Codable, Equatable, Sendable {
     }
 
     public static let scaleRange: ClosedRange<Double> = 0.25...4
+
+    /// The state with every number limited to its range: one range per field (D41), the same for
+    /// the controls, the gestures, launch arguments and saved settings.
+    public func clamped() -> ViewState {
+        var s = self
+        s.duoprism.p = duoprism.p.clamped(to: DuoprismParameters.range)
+        s.duoprism.q = duoprism.q.clamped(to: DuoprismParameters.range)
+        s.projection.kappa = projection.kappa.clamped(to: ProjectionSettings.range)
+        s.projection.spherize = projection.spherize.clamped(to: ProjectionSettings.range)
+        s.display.edgeThickness = display.edgeThickness.clamped(to: DisplaySettings.thicknessRange)
+        s.display.faceOpacity = display.faceOpacity.clamped(to: DisplaySettings.opacityRange)
+        s.display.explode = display.explode.clamped(to: DisplaySettings.explodeRange)
+        s.display.faceThickness = display.faceThickness.clamped(to: DisplaySettings.faceThicknessRange)
+        s.motion.omega = motion.omega.clamped(to: MotionSettings.speedRange)
+        s.motion.friction = motion.friction.clamped(to: MotionSettings.frictionRange)
+        s.scale = scale.clamped(to: Self.scaleRange)
+        return s
+    }
 }
 
 extension DisplaySettings {

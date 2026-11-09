@@ -8,19 +8,17 @@ import Spatial
 import SwiftUI
 
 /// Gestures, variant A (DESIGN 8.1, 10.7): standard visionOS gestures on the content's input
-/// target. Every gesture has a control-panel equivalent (Motion section).
+/// target. Every gesture has a control-panel equivalent (Motion section). The logic is in Core4D
+/// (`GrabSession`, `GestureMapping`), where it is tested.
 ///
 /// - Pinch + drag: 4D rotation, the drag direction tips towards W.
 /// - Two hands twist: 3D rotation. Two hands apart/together: scale.
-/// - Release with momentum: throw. Pinch and hold: catch. Double tap: reset orientation.
+/// - Pinch and hold, or move: catch. Release with momentum: throw. Double tap: reset orientation.
 struct ShadowGestures: ViewModifier {
     @Environment(AppModel.self) private var model
-    @State private var drag = DragState()
+    @State private var grab: GrabSession?
     @State private var lastTwist: simd_quatd?
     @State private var scaleAtStart: Double?
-
-    /// Throws slower than this (m/s) leave the object caught.
-    static let minimumThrowSpeed = 0.05
 
     func body(content: Content) -> some View {
         content
@@ -33,50 +31,61 @@ struct ShadowGestures: ViewModifier {
     /// Only the object's input target (`ShadowInputComponent`), not e.g. the room's floor disc.
     private static let target = QueryPredicate<Entity>.has(ShadowInputComponent.self)
 
+    /// Whether a two-hand gesture owns the object; drags are then ignored.
+    private var twoHandGesture: Bool { lastTwist != nil || scaleAtStart != nil }
+
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .targetedToEntity(where: Self.target)
             .onChanged { value in
                 let p = SIMD3<Double>(value.convert(value.location3D, from: .local, to: value.entity))
                 let now = ProcessInfo.processInfo.systemUptime
-                if !drag.isActive {
-                    // Catch: grabbing stops the rotation.
-                    drag = DragState(isActive: true, last: p)
-                    model.stop()
+                if grab == nil {
+                    grab = GrabSession(time: now, position: p)
                     model.gestureLog.record(drag: "begin at \(format(p))")
+                    catchWhenHeld(startedAt: now)
                 }
-                drag.tracker.add(time: now, position: p)
-                // Two-hand gestures own the object while they run.
-                guard lastTwist == nil, scaleAtStart == nil else {
-                    drag.last = p
-                    return
+                guard var session = grab else { return }
+                let step = session.move(to: p, at: now, twoHandGesture: twoHandGesture)
+                // A grab catches once it has moved or held a moment; a quick tap does not (D49).
+                if session.catchesNow(at: now) { model.stop() }
+                grab = session
+                if simd_length(step) > 0 {
+                    model.setOrientation(model.gestureMapping.rotation(forDrag: step) * model.orientation)
                 }
-                let delta = p - drag.last
-                drag.last = p
-                if simd_length(delta) > 0 {
-                    model.setOrientation(model.gestureMapping.rotation(forDrag: delta) * model.orientation)
-                }
-                model.gestureLog.record(drag: "Δ \(format(delta)) m, v \(format(drag.tracker.velocity)) m/s")
+                model.gestureLog.record(drag: "Δ \(format(step)) m, v \(format(session.velocity)) m/s")
             }
             .onEnded { _ in
-                let v = drag.tracker.velocity
-                if simd_length(v) >= Self.minimumThrowSpeed, lastTwist == nil, scaleAtStart == nil {
-                    model.motion.omega = clampedThrow(model.gestureMapping.angularVelocity(forDragVelocity: v))
+                if let omega = grab?.throwVelocity(mapping: model.gestureMapping, twoHandGesture: twoHandGesture) {
+                    model.motion.omega = omega
                 }
-                model.gestureLog.record(drag: "end, throw v \(format(v)) m/s")
-                drag = DragState()
+                model.gestureLog.record(drag: "end, throw v \(format(grab?.velocity ?? .zero)) m/s")
+                grab = nil
             }
+    }
+
+    /// A hand that holds still sends no more changes, so the hold is checked once more when the
+    /// catch delay has passed.
+    private func catchWhenHeld(startedAt start: TimeInterval) {
+        Task {
+            try? await Task.sleep(for: .seconds(GrabSession.catchDelay))
+            guard var session = grab, session.startTime == start else { return }
+            if session.catchesNow(at: ProcessInfo.processInfo.systemUptime) { model.stop() }
+            grab = session
+        }
     }
 
     private var twistGesture: some Gesture {
         RotateGesture3D()
             .targetedToEntity(where: Self.target)
             .onChanged { value in
-                let q = Self.realityKitQuaternion(value.rotation.quaternion)
+                // In the input target's axes, which are the content's: the SDK converts from
+                // SwiftUI's y-down space and includes the room's heading (D50) [verify on device].
+                let q = simd_quatd(vector: SIMD4<Double>(value.convert(value.rotation, from: .local, to: value.entity).vector))
                 if let last = lastTwist {
-                    let delta = q * last.inverse
-                    model.setOrientation(GestureMapping.rotation(for: delta) * model.orientation)
+                    model.setOrientation(GestureMapping.twistIncrement(from: last, to: q) * model.orientation)
                 } else {
+                    // Catch: a twist stops the rotation.
                     model.stop()
                 }
                 lastTwist = q
@@ -91,7 +100,7 @@ struct ShadowGestures: ViewModifier {
             .onChanged { value in
                 let start = scaleAtStart ?? model.scale
                 scaleAtStart = start
-                model.scale = (start * value.magnification).clamped(to: ViewState.scaleRange)
+                model.scale = GestureMapping.magnifiedScale(start: start, magnification: value.magnification)
                 model.gestureLog.record(magnify: String(format: "× %.2f → scale %.2f", value.magnification, model.scale))
             }
             .onEnded { _ in scaleAtStart = nil }
@@ -105,19 +114,6 @@ struct ShadowGestures: ViewModifier {
                 model.gestureLog.record(tap: "double tap → reset")
             }
     }
-
-    /// SwiftUI's 3D gesture space has y pointing down; RealityKit has y up. Mirroring y maps a
-    /// rotation (x, y, z, w) to (−x, y, −z, w) [verify on device].
-    static func realityKitQuaternion(_ q: simd_quatd) -> simd_quatd {
-        simd_quatd(ix: -q.imag.x, iy: q.imag.y, iz: -q.imag.z, r: q.real)
-    }
-}
-
-/// State of a running one-hand drag.
-struct DragState {
-    var isActive = false
-    var last = SIMD3<Double>.zero
-    var tracker = VelocityTracker()
 }
 
 func format(_ v: SIMD3<Double>) -> String {

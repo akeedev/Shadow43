@@ -20,51 +20,68 @@ public enum ProjectionPreset: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// Named partial assignments of the display layers (DESIGN 6.2).
+/// A glide of κ and s from one projection to another (D42): a projection preset morphs the shadow
+/// there instead of making it jump, so you see one projection turn into the other.
+public struct ProjectionMorph: Equatable, Sendable {
+    public static let duration: TimeInterval = 0.6
+
+    public var from: ProjectionSettings
+    public var to: ProjectionSettings
+    public var start: TimeInterval
+
+    public init(from: ProjectionSettings, to: ProjectionSettings, start: TimeInterval) {
+        self.from = from
+        self.to = to
+        self.start = start
+    }
+
+    /// The projection at time `t`, easing in and out (smoothstep); exactly `to` once finished.
+    public func value(at t: TimeInterval) -> (settings: ProjectionSettings, isFinished: Bool) {
+        let x = (t - start) / Self.duration
+        guard x < 1 else { return (to, true) }
+        let e = x <= 0 ? 0 : x * x * (3 - 2 * x)
+        let settings = ProjectionSettings(kappa: from.kappa + e * (to.kappa - from.kappa),
+                                          spherize: from.spherize + e * (to.spherize - from.spherize))
+        return (settings, false)
+    }
+}
+
+/// Named partial assignments of the display layers (DESIGN 6.2, D48).
 public enum DisplayPreset: String, CaseIterable, Codable, Sendable {
     case wireframe, glass, solid, cells
 
-    /// Applies the preset. Layers that the preset does not mention stay unchanged, except that
-    /// leaving *Cells* also leaves its per-cell colour and explode behind.
+    /// Applies the preset. Every preset sets the edges, their thickness, the face opacity and the
+    /// explode; the others leave per-cell colour behind (it would force an explode again), and the
+    /// lit ones turn glowing faces matte. Layers a preset does not mention stay unchanged.
     public func apply(to d: inout DisplaySettings) {
-        let wasCells = DisplayPreset.cells.matches(d)
+        d.edgesVisible = true
         switch self {
         case .wireframe:
-            d.edgesVisible = true
             d.edgeThickness = 0.012
             d.faceOpacity = 0
         case .glass:
-            d.edgesVisible = true
             d.edgeThickness = 0.012
             d.faceOpacity = 0.25
             d.faceStyle = .glowing
         case .solid:
-            d.edgesVisible = true
             d.edgeThickness = 0.005
             d.faceOpacity = 1
             if d.faceStyle == .glowing { d.faceStyle = .matte }
         case .cells:
-            d.edgesVisible = true
             d.edgeThickness = 0.005
-            d.explode = 0.2
             d.faceOpacity = 1
             d.colorSource = .perCell
             if d.faceStyle == .glowing { d.faceStyle = .matte }
         }
-        if wasCells && self != .cells {
-            d.explode = 0
-            d.colorSource = .byW
-        }
+        d.explode = self == .cells ? 0.2 : 0
+        if self != .cells, d.colorSource == .perCell { d.colorSource = .byW }
     }
 
-    /// Whether the settings currently look like this preset.
+    /// Whether the settings look like this preset: applying it would change nothing.
     public func matches(_ d: DisplaySettings) -> Bool {
-        switch self {
-        case .wireframe: d.edgesVisible && d.faceOpacity == 0
-        case .glass: d.edgesVisible && d.faceOpacity == 0.25 && d.faceStyle == .glowing && d.explode == 0
-        case .solid: d.faceOpacity == 1 && d.explode == 0 && d.edgeThickness == 0.005
-        case .cells: d.faceOpacity == 1 && d.explode == 0.2 && d.colorSource == .perCell
-        }
+        var applied = d
+        apply(to: &applied)
+        return applied == d
     }
 }
 

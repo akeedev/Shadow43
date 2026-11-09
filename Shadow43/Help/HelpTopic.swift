@@ -3,43 +3,9 @@
 import Core4D
 import SwiftUI
 
-/// Everything the help window can explain (D22): the About page, each tab, and each control.
-/// All texts go through the String Catalog.
-enum HelpTopic: Hashable {
-    case about
-    case tab(PanelTab)
-    case object(ObjectID)
-    case duoprismParameters
-    case projectionPreset(ProjectionPreset)
-    case kappa, spherize
-    case displayPreset(DisplayPreset)
-    case edges, floorShadow, axes, edgeThickness, faceOpacity, colorSource, faceStyle, explode, size
-    case pattern, faceThickness
-    case motionPreset(MotionPreset)
-    case stop, reset, friction, planeSpeed
-    case transparency, floorShadowMethod, dragMapping, performanceOverlay, gestureTest, freezeTime
-    case fineSubdivision, viewerSide, room
-    case resetAll
-
-    /// The `-help` launch argument: `about`, a tab (`projection`) or an object (`tesseract`).
-    init?(launchValue: String) {
-        if launchValue == "about" {
-            self = .about
-        } else if let tab = PanelTab(rawValue: launchValue) {
-            self = .tab(tab)
-        } else if let id = ObjectID(rawValue: launchValue) {
-            self = .object(id)
-        } else {
-            return nil
-        }
-    }
-
-    /// The object this topic explains, if any; it is shown in the volume while explained.
-    var explainedObject: ObjectID? {
-        if case .object(let id) = self { return id }
-        return nil
-    }
-
+/// The texts of the help topics (D22; the topics themselves are in Core4D). All texts go through
+/// the String Catalog.
+extension HelpTopic {
     var title: LocalizedStringKey {
         switch self {
         case .about: "About Shadow43"
@@ -113,7 +79,7 @@ enum HelpTopic: Hashable {
         case .object(.kleinBottle):
             "**Klein bottle**\n\nA closed surface with only one side: there is no inside and no outside. In 3D a Klein bottle must pass through itself. In 4D it does not: where its shadow seems to cut through itself, the two sheets are at different w and pass each other.\n\nColour *By W* shows this: at a crossing, the two sheets have different colours."
         case .object(.cliffordTorus):
-            "**Clifford torus**\n\nThe points (cos u, sin u, cos v, sin v) / √2: a torus on the 3-sphere, all of whose points are equally far from the centre. It is completely flat: it can be made from a sheet of paper without stretching, which is impossible in 3D.\n\nRotations in XY and ZW map it onto itself, so under the *Double* and *Isoclinic* motions it slides along itself and its shadow keeps its shape. In the stereographic projection it looks like an ordinary ring."
+            "**Clifford torus**\n\nThe points (cos u, sin u, cos v, sin v) / √2: a torus on the 3-sphere, all of whose points are equally far from the centre. It is completely flat: it can be made from a sheet of paper without stretching, which is impossible in 3D.\n\nIt is very symmetric: rotations in its own XY and ZW planes map it onto itself. In the stereographic projection it looks like an ordinary ring."
         case .object(.hopfFibration):
             "**Hopf fibration**\n\nThe 3-sphere, the set of points at distance 1 from the centre in 4D, can be filled completely with great circles that never meet, and any two of them are linked like chain links. These circles are the fibres of the Hopf fibration; each one belongs to one point of the ordinary 2-sphere.\n\nThe app shows a selection of fibres. In the stereographic projection they become linked circles lying on nested tori. Colour *Per fibre* gives each circle its own colour."
         case .duoprismParameters:
@@ -143,7 +109,7 @@ enum HelpTopic: Hashable {
         case .axes:
             "The object's own four axes from −1 to +1: x red, y green, z blue, w yellow. They rotate and are projected together with the object.\n\nAt the start, w is only a point at the centre: it is the direction the projection removes. Turn the object into w (drag sideways, or the *Simple* motion) and the w axis grows while another axis shrinks."
         case .edgeThickness:
-            "Radius of the edge tubes, relative to the object's size."
+            "Radius of the edge tubes. It is a fixed length, so the tubes keep their thickness when you change the size or resize the window; in the room they are twice as thick."
         case .faceOpacity:
             "0 % hides the faces, 100 % makes them opaque. In between you can see through them."
         case .colorSource:
@@ -153,7 +119,7 @@ enum HelpTopic: Hashable {
         case .pattern:
             "An image on every face: *Grid*, *Marble* or *Wood*. It is fixed to the face in 4D, so the projection distorts it — in the perspective and stereographic views you can see how each face is stretched.\n\nOn polytopes a grid square is a quarter of a tesseract edge; on surfaces the pattern follows the surface's own coordinates. For now a pattern replaces the colour on the faces; the edges keep it."
         case .faceThickness:
-            "Gives every face a real thickness, so thin films become slabs and the surfaces become solid sheets. The thickness is relative to the object's size.\n\nWith thick faces, turn on the edges and make them at least as thick as half the face thickness, so the open rims are covered."
+            "Gives every face a real thickness, so thin films become slabs and the surfaces become solid sheets. Like the edge thickness, it is a fixed length.\n\nWith thick faces, turn on the edges and make them at least as thick as half the face thickness, so the open rims are covered."
         case .explode:
             "Shrinks every cell towards its own centre, so gaps open between the cells. Polytopes only."
         case .size:
@@ -175,7 +141,7 @@ enum HelpTopic: Hashable {
         case .planeSpeed:
             "Speed in each rotation plane, in radians per second. XY, XZ and YZ turn the shadow like a 3D object. XW, YW and ZW turn the object into the fourth dimension and change the shadow's shape. A throw with your hand sets these speeds too."
         case .transparency:
-            "How see-through faces are drawn. *Additive* adds the colours up: no sorting, but it can look washed out. *Sorted* sorts all triangles from back to front, seen from the side of the window you are on. *Per-cell entities* gives every cell its own entity and lets RealityKit sort them; it needs Explode above 0 and is used only up to 48 cells; the 120-cell and the 600-cell use Sorted instead, because so many entities stall the app."
+            "How see-through faces are drawn. *Additive* adds the colours up: no sorting, but it can look washed out, so with a pattern Sorted is used instead. *Sorted* sorts all triangles from back to front, seen from the side of the window you are on. *Per-cell entities* gives every cell its own entity and lets RealityKit sort them; it needs Explode above 0 and is used only up to 48 cells; the 120-cell and the 600-cell use Sorted instead, because so many entities stall the app."
         case .floorShadowMethod:
             "*Directional light* casts a real shadow from a light above. *Grounding shadow* is the system's soft contact shadow."
         case .dragMapping:

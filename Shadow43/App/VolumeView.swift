@@ -3,8 +3,8 @@
 import Core4D
 import SwiftUI
 
-/// Content of the volumetric window: the shadow. It opens the controls when it appears (D25) and
-/// opens and closes the info window as the model asks. Closing it closes the app (D34).
+/// Content of the volumetric window: the shadow. It opens the controls when it appears (D25);
+/// they open Info (D46). Closing it closes the app (D34).
 struct VolumeView: View {
     /// Also read by the panels' placement closures, which are not on the main actor.
     nonisolated static let windowID = "volume"
@@ -12,7 +12,6 @@ struct VolumeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.physicalMetrics) private var metrics
     /// Current size of the volume in metres; follows the user's resizing (D19).
     @State private var bounds = SceneHost.defaultWindowBounds
@@ -58,13 +57,6 @@ struct VolumeView: View {
                 model.isClosing = false
                 // The controls open Info if needed, once they exist to place it by (D40).
                 openWindow(id: PanelWindow.controlsID)
-            }
-            .onChange(of: model.showsHelp) { _, shows in
-                if shows {
-                    openWindow(id: PanelWindow.infoID)
-                } else {
-                    dismissWindow(id: PanelWindow.infoID)
-                }
             }
             // Closing the volume closes the app; the panels close themselves (D34).
             .onDisappear { model.isClosing = true }

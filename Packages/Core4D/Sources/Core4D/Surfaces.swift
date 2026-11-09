@@ -7,9 +7,12 @@ import simd
 public enum Surfaces {
     /// A parametric surface f(u, v) on a grid of nU × nV cells, including the closing row and
     /// column (seam points are duplicated, not glued). UV is passed along normalised to [0, 1];
-    /// every `edgeStride`-th grid line becomes an edge polyline.
+    /// every `edgeStride`-th grid line becomes an edge polyline. On a `closed` surface the last
+    /// grid line in each direction lies on the first, so it gets no tube of its own; two tubes in
+    /// the same place would flicker in two colours.
     public static func grid(nU: Int, nV: Int, uRange: ClosedRange<Double>, vRange: ClosedRange<Double>,
-                            edgeStride: Int, f: (Double, Double) -> SIMD4<Double>) -> Complex4D {
+                            edgeStride: Int, closed: Bool = false,
+                            f: (Double, Double) -> SIMD4<Double>) -> Complex4D {
         var vertices: [SIMD4<Double>] = []
         var uv: [SIMD2<Double>] = []
         let cols = nV + 1
@@ -32,10 +35,11 @@ public enum Surfaces {
         }
         var edges: [[Int]] = []
         let stride = max(1, edgeStride)
-        for i in Swift.stride(from: 0, through: nU, by: stride) {
+        let lastU = closed ? nU - 1 : nU, lastV = closed ? nV - 1 : nV
+        for i in Swift.stride(from: 0, through: lastU, by: stride) {
             edges.append((0...nV).map { index(i, $0) })
         }
-        for j in Swift.stride(from: 0, through: nV, by: stride) {
+        for j in Swift.stride(from: 0, through: lastV, by: stride) {
             edges.append((0...nU).map { index($0, j) })
         }
         return Complex4D(vertices: vertices, edges: edges, faces: faces, uv: uv, kind: .surface)
@@ -56,14 +60,16 @@ public enum Surfaces {
         SIMD4((R + r * cos(v)) * cos(u), (R + r * cos(v)) * sin(u), r * sin(v) * cos(u / 2), r * sin(v) * sin(u / 2))
     }
 
+    /// Closed in both directions: v = 2π is v = 0, and u = 2π is u = 0 with v reversed.
     public static func kleinBottle(nU: Int = 72, nV: Int = 36, edgeStride: Int = 6) -> Complex4D {
         scaledToUnitRadius(grid(nU: nU, nV: nV, uRange: 0...(2 * .pi), vRange: 0...(2 * .pi),
-                                edgeStride: edgeStride) { kleinBottleFunction($0, $1) })
+                                edgeStride: edgeStride, closed: true) { kleinBottleFunction($0, $1) })
     }
 
     /// The Clifford torus `(cos u, sin u, cos v, sin v) / √2`, a flat torus on S³.
     public static func cliffordTorus(n: Int = 64, edgeStride: Int = 8) -> Complex4D {
-        grid(nU: n, nV: n, uRange: 0...(2 * .pi), vRange: 0...(2 * .pi), edgeStride: edgeStride) { u, v in
+        grid(nU: n, nV: n, uRange: 0...(2 * .pi), vRange: 0...(2 * .pi), edgeStride: edgeStride,
+             closed: true) { u, v in
             SIMD4(cos(u), sin(u), cos(v), sin(v)) / sqrt(2)
         }
     }

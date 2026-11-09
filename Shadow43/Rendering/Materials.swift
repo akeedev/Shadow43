@@ -26,29 +26,41 @@ struct MaterialKey: Hashable {
     }
 }
 
-/// Creates and caches materials (DESIGN 11.6): `PhysicallyBasedMaterial` for matte/glossy,
+/// The `.add` blend programs of the additive transparency method, created once for the whole
+/// app: their initialisers are async, and every renderer, the room's too, shares them. Until they
+/// exist, additive is drawn sorted (D47).
+@MainActor
+enum AdditivePrograms {
+    private(set) static var unlit: UnlitMaterial.Program?
+    private(set) static var lit: PhysicallyBasedMaterial.Program?
+    private static var task: Task<Void, Never>?
+
+    static var isReady: Bool { unlit != nil && lit != nil }
+
+    /// Starts creating the programs, once.
+    static func prepare() {
+        guard task == nil else { return }
+        task = Task {
+            var unlitDescriptor = UnlitMaterial.Program.Descriptor()
+            unlitDescriptor.blendMode = .add
+            let unlitProgram = await UnlitMaterial.Program(descriptor: unlitDescriptor)
+            var litDescriptor = PhysicallyBasedMaterial.Program.Descriptor()
+            litDescriptor.blendMode = .add
+            let litProgram = await PhysicallyBasedMaterial.Program(descriptor: litDescriptor)
+            unlit = unlitProgram
+            lit = litProgram
+        }
+    }
+}
+
+/// Creates and caches materials (DESIGN 11.6): `PhysicallyBasedMaterial` for the lit styles,
 /// `UnlitMaterial` for glowing, each with a colour texture.
 @MainActor
 final class MaterialFactory {
     private var textures: [ColorTexture: MaterialParameters.Texture] = [:]
     private var cache: [MaterialKey: any RealityKit.Material] = [:]
-    private var unlitAdditive: UnlitMaterial.Program?
-    private var litAdditive: PhysicallyBasedMaterial.Program?
-
-    /// Whether the additive programs are ready. Until then additive falls back to alpha.
-    private(set) var isReady = false
-
-    /// Creates the `.add` blend programs (their initialisers are async).
-    func prepare() async {
-        var unlitDescriptor = UnlitMaterial.Program.Descriptor()
-        unlitDescriptor.blendMode = .add
-        unlitAdditive = await UnlitMaterial.Program(descriptor: unlitDescriptor)
-        var litDescriptor = PhysicallyBasedMaterial.Program.Descriptor()
-        litDescriptor.blendMode = .add
-        litAdditive = await PhysicallyBasedMaterial.Program(descriptor: litDescriptor)
-        isReady = true
-        cache.removeAll()
-    }
+    /// The opacity is part of the key, so moving its slider would add a material per value.
+    private static let cacheLimit = 64
 
     func texture(_ kind: ColorTexture) -> MaterialParameters.Texture? {
         if let t = textures[kind] { return t }
@@ -59,6 +71,7 @@ final class MaterialFactory {
 
     func material(_ key: MaterialKey) -> any RealityKit.Material {
         if let m = cache[key] { return m }
+        if cache.count >= Self.cacheLimit { cache.removeAll() }
         let m = makeMaterial(key)
         cache[key] = m
         return m
@@ -74,7 +87,7 @@ final class MaterialFactory {
         switch key.style {
         case .glowing:
             var m: UnlitMaterial
-            if key.blend == .additive, let program = unlitAdditive {
+            if key.blend == .additive, let program = AdditivePrograms.unlit {
                 m = UnlitMaterial(program: program)
             } else {
                 m = UnlitMaterial()
@@ -85,7 +98,7 @@ final class MaterialFactory {
             return m
         case .matte, .glossy, .metal, .ceramic, .frostedGlass:
             var m: PhysicallyBasedMaterial
-            if key.blend == .additive, let program = litAdditive {
+            if key.blend == .additive, let program = AdditivePrograms.lit {
                 m = PhysicallyBasedMaterial(program: program)
             } else {
                 m = PhysicallyBasedMaterial()

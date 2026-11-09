@@ -7,7 +7,8 @@ import SwiftUI
 ///
 /// Neither opens at the default spot in front of the volume: a window there made visionOS push
 /// the volume back and dim it (D23). Neither is restored at launch. The volume opens the controls
-/// when it appears. Closing the volume or the controls closes the whole app (D34).
+/// when it appears, and the controls open and close Info (D46). Closing the volume or the
+/// controls closes the whole app (D34).
 enum PanelWindow {
     static let controlsID = "controls"
     static let infoID = "info"
@@ -31,16 +32,25 @@ enum PanelWindow {
     }
 }
 
-/// Content of the controls window. Closing it closes the app (D34).
+/// Content of the controls window. It opens and closes Info as the help topic comes and goes
+/// (D46). Closing it closes the app (D34).
 struct ControlsWindow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         ControlPanel()
             // Info opened together with the controls (help at launch) would not find them yet
             // and land at the utility-panel spot; opened from here it goes below them (D40).
-            .onAppear { if model.showsHelp { openWindow(id: PanelWindow.infoID) } }
+            .onAppear { if model.helpTopic != nil { openWindow(id: PanelWindow.infoID) } }
+            .onChange(of: model.helpTopic != nil) { _, shows in
+                if shows {
+                    openWindow(id: PanelWindow.infoID)
+                } else {
+                    dismissWindow(id: PanelWindow.infoID)
+                }
+            }
             .onDisappear { model.isClosing = true }
             .closesWithApp(windowID: PanelWindow.controlsID)
     }

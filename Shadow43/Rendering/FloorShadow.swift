@@ -85,6 +85,12 @@ final class FloorShadow {
         method = nil
     }
 
+    /// A caster got new children (the cell entities): the next `update` sets them up by the
+    /// current method too.
+    func refreshCasters() {
+        method = nil
+    }
+
     func update(enabled: Bool, method newMethod: FloorShadowMethod) {
         guard enabled != self.enabled || newMethod != method else { return }
         self.enabled = enabled

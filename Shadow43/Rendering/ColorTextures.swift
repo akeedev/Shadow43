@@ -1,31 +1,14 @@
 // Copyright 2026 Andreas Keese. Licensed under the Apache License, Version 2.0.
 
+import Core4D
 import CoreGraphics
 import Foundation
 import Metal
 import RealityKit
 
-/// The small textures behind the colour sources (DESIGN 6.3, 11.6): every colour source is a
-/// texture coordinate plus one of these.
-enum ColorTexture: Hashable {
-    /// One colour (uniform faces).
-    case uniform
-    /// Plain light (edges).
-    case light
-    /// Blue (w = −1) ↔ red (w = +1), 256×1.
-    case byW
-    /// N×1 palette for cells.
-    case palette
-    /// Checkerboard in (u, v) for surfaces.
-    case checkerboard
-    /// Hue sweep for Hopf fibres.
-    case hue
-    /// Repeating image patterns on the faces (D24), drawn in code and tileable.
-    case grid, marble, wood
-
-    /// Number of palette entries; must match `FrameColorMode.palette(count:)`.
-    static let paletteCount = 12
-
+/// Draws the small textures behind the colour sources (DESIGN 6.3, 11.6); which source uses which
+/// is decided in Core4D (`Coloring`).
+extension ColorTexture {
     static let paletteColors: [SIMD3<Double>] = [
         [0.30, 0.60, 1.00], [1.00, 0.55, 0.20], [0.35, 0.85, 0.45], [0.95, 0.35, 0.45],
         [0.70, 0.50, 1.00], [1.00, 0.85, 0.30], [0.25, 0.85, 0.85], [1.00, 0.50, 0.80],
@@ -107,12 +90,6 @@ enum ColorTexture: Hashable {
         ]
         return waves.reduce(0) { sum, w in sum + w.2 * sin(2 * .pi * (w.0 * u + w.1 * v) + w.3) }
     }
-
-    /// Patterns repeat across a face; colour lookups stay inside the texture.
-    var isPattern: Bool { self == .grid || self == .marble || self == .wood }
-
-    /// Nearest filtering for the palette, so that neighbouring entries never blend.
-    var usesNearestFilter: Bool { self == .palette }
 
     func makeImage() -> CGImage? {
         let (w, h, rgb) = pixels

@@ -13,7 +13,7 @@ struct HelpPanel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let topic = model.helpTopic
+        let topic = model.helpTopic ?? .about
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .firstTextBaseline) {
                 Text(topic.title).font(.largeTitle)
@@ -39,8 +39,9 @@ struct HelpPanel: View {
     }
 }
 
-/// Marks a control as a help target: in "?" mode a tap explains it instead of using it. The one
-/// exception are objects: explaining one also shows it in the volume, which depicts it.
+/// Marks a control as a help target: in "?" mode a tap explains it instead of using it. Taps that
+/// only change what is shown still take effect: explaining an object also shows it in the volume,
+/// which depicts it, and explaining a tab opens it (D22, D46).
 struct HelpTarget: ViewModifier {
     @Environment(AppModel.self) private var model
     let topic: HelpTopic
@@ -50,8 +51,7 @@ struct HelpTarget: ViewModifier {
             if model.isHelpMode {
                 let isShown = model.helpTopic == topic
                 Button {
-                    model.showHelp(topic)
-                    if let object = topic.explainedObject { model.object = object }
+                    model.explain(topic)
                 } label: {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.accentColor.opacity(isShown ? 0.25 : 0.05))
@@ -73,11 +73,8 @@ extension View {
     }
 }
 
-/// About page: who, version, date, and how to use the app.
+/// About page: who, version, build date, and how to use the app.
 struct AboutContent: View {
-    /// Release date of this version; update it with the version number.
-    static let date: LocalizedStringKey = "8 November 2026"
-
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -85,13 +82,22 @@ struct AboutContent: View {
         return "\(short) (\(build))"
     }
 
+    /// When the app was built: the date of its executable, so it never goes stale (D51).
+    private static let buildDate: Date? = {
+        guard let path = Bundle.main.executablePath,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        return attributes[.modificationDate] as? Date
+    }()
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("The 3D shadows of 4D objects.").font(.title3)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Version \(version)")
-                    Text(Self.date)
+                    if let date = Self.buildDate {
+                        Text("Built on \(date.formatted(date: .long, time: .omitted))")
+                    }
                     Text("By Andreas Keese with Claude")
                     Text("Open source under the Apache License 2.0")
                 }

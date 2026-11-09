@@ -20,8 +20,12 @@ struct ShadowRealityView: View {
                 content.add(renderer.root)
             case .room:
                 // In front of the viewer, fixed in the room (D30) and level (D36): under the head's
-                // pose without its pitch and roll, so the disc is parallel to the floor.
-                if let head = await HeadPose.current() {
+                // pose without its pitch and roll, so the disc is parallel to the floor. The
+                // tracking keeps running, so translucent faces sort towards the head (D44).
+                let tracker = HeadTracker()
+                var head: simd_float4x4?
+                if await tracker.start() { head = await tracker.firstPose() }
+                if let head {
                     let pose = LevelPose(head: Self.double(head))
                     ShadowRenderer.logger.notice("Head pose: room placed level at \(pose.position.debugDescription, privacy: .public), yaw \(pose.yaw, privacy: .public)")
                     let level = Entity()
@@ -30,15 +34,18 @@ struct ShadowRealityView: View {
                     level.orientation = simd_quatf(vector: SIMD4<Float>(pose.rotation.vector))
                     level.addChild(renderer.roomBase)
                     content.add(level)
+                    renderer.headTracker = tracker
                 } else {
-                    // Without world tracking: the head anchor, tilted if the head was.
+                    // Without world tracking: the head anchor, tilted if the head was; sorted
+                    // towards +z, where the viewer stood.
+                    tracker.stop()
                     let anchor = AnchorEntity(.head, trackingMode: .once)
                     anchor.addChild(renderer.roomBase)
                     content.add(anchor)
                 }
             }
             self.renderer = renderer
-            subscriptions = ManipulationProbe.subscribe(content, log: model.gestureLog)
+            subscriptions = ManipulationProbe.subscribe(content, probe: renderer.probe, log: model.gestureLog)
         } update: { _ in
             // Also runs once the renderer exists, so a resize during setup is not lost (D19).
             renderer?.setHost(host)

@@ -123,7 +123,8 @@ public final class FrameBuilder {
     public private(set) var boundsMin = SIMD3<Float>(repeating: 0)
     public private(set) var boundsMax = SIMD3<Float>(repeating: 0)
 
-    private var faceValid: [Bool]
+    /// Whether each face point survived the drop this frame (its back copy shares it).
+    public private(set) var faceValid: [Bool]
     private var edgePositions: [SIMD3<Float>]
     private var edgeW: [Float]
     private var edgeValid: [Bool]
@@ -188,6 +189,24 @@ public final class FrameBuilder {
         if lo.x > hi.x { lo = .zero; hi = .zero }
         boundsMin = lo
         boundsMax = hi
+    }
+
+    /// Centre and bounds of a cell group's face points that survived the drop, both copies, or
+    /// nil if none did. A per-cell entity sits at this centre, so that RealityKit sorts the cells
+    /// by where they are seen; dropped points would pull it towards the origin or far out.
+    public func groupCentre(_ g: Int) -> (centre: SIMD3<Float>, min: SIMD3<Float>, max: SIMD3<Float>)? {
+        var sum = SIMD3<Float>.zero
+        var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
+        var count = 0
+        for i in mesh.groupPointRanges[g] where faceValid[i] {
+            let front = faceVertices[i].position, back = faceVertices[backVertexOffset + i].position
+            sum += front + back
+            lo = simd_min(lo, simd_min(front, back))
+            hi = simd_max(hi, simd_max(front, back))
+            count += 2
+        }
+        guard count > 0 else { return nil }
+        return (sum / Float(count), lo, hi)
     }
 
     // MARK: Projection

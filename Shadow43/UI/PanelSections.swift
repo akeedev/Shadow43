@@ -36,27 +36,32 @@ struct ObjectSection: View {
     }
 }
 
-/// Projection: three presets plus the κ and s sliders (DESIGN 5).
+/// Projection: three presets plus the κ and s sliders (DESIGN 5). A preset morphs the shadow
+/// there (D42); moving a slider ends the morph.
 struct ProjectionSection: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        @Bindable var model = model
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 ForEach(ProjectionPreset.allCases, id: \.self) { preset in
                     SelectButton(title: preset.label,
                                  isSelected: ProjectionPreset.matching(model.projection) == preset) {
-                        withAnimation(.easeInOut(duration: 0.6)) { model.projection = preset.settings }
+                        model.morphProjection(to: preset.settings)
                     }
                     .helpTarget(.projectionPreset(preset))
                 }
             }
-            LabeledSlider(title: "Perspective κ", value: $model.projection.kappa, range: 0...1)
+            LabeledSlider(title: "Perspective κ", value: binding(\.kappa), range: ProjectionSettings.range)
                 .helpTarget(.kappa)
-            LabeledSlider(title: "Spherize s", value: $model.projection.spherize, range: 0...1)
+            LabeledSlider(title: "Spherize s", value: binding(\.spherize), range: ProjectionSettings.range)
                 .helpTarget(.spherize)
         }
+    }
+
+    private func binding(_ field: WritableKeyPath<ProjectionSettings, Double>) -> Binding<Double> {
+        Binding(get: { model.projection[keyPath: field] },
+                set: { value in model.setProjection { $0[keyPath: field] = value } })
     }
 }
 
@@ -79,7 +84,9 @@ struct DisplaySection: View {
             }
             HStack(spacing: 16) {
                 HStack(spacing: 16) {
+                    // Curves are only edges, so they always show them.
                     Toggle("Edges", isOn: $model.display.edgesVisible).fixedSize()
+                        .disabled(kind == .curves)
                     Picker("Edge colour", selection: $model.display.edgeColor) {
                         ForEach(EdgeColorMode.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
@@ -94,11 +101,15 @@ struct DisplaySection: View {
             LabeledSlider(title: "Edge thickness", value: $model.display.edgeThickness,
                           range: DisplaySettings.thicknessRange, format: "%.3f")
                 .helpTarget(.edgeThickness)
-            LabeledSlider(title: "Face opacity", value: $model.display.faceOpacity, range: 0...1,
-                          format: "%.0f %%", displayScale: 100)
+            LabeledSlider(title: "Face opacity", value: $model.display.faceOpacity,
+                          range: DisplaySettings.opacityRange, format: "%.0f %%", displayScale: 100)
+                .disabled(kind == .curves)
                 .helpTarget(.faceOpacity)
             HStack(spacing: 16) {
-                Picker("Colour", selection: $model.display.colorSource) {
+                // Shows the source in use: one that does not fit the object counts as uniform, and
+                // the choice comes back with an object it fits.
+                Picker("Colour", selection: Binding(get: { model.effectiveColorSource },
+                                                    set: { model.display.colorSource = $0 })) {
                     ForEach(ColorSource.allCases.filter { $0.isAvailable(for: kind) }, id: \.self) {
                         Text($0.label).tag($0)
                     }

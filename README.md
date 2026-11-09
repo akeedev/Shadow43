@@ -5,7 +5,8 @@ four-dimensional objects, such as the tesseract, the 120-cell, the Klein bottle 
 fibration. You can rotate them in all six 4D rotation planes, by hand or automatically, and morph
 continuously between orthographic, perspective and stereographic projection.
 
-Status: early development. See [DESIGN.md](DESIGN.md) for the full design.
+Status: version 1.0; it runs on Apple Vision Pro and in the visionOS simulator. See
+[DESIGN.md](DESIGN.md) for the full design.
 
 ## Build
 
@@ -33,7 +34,7 @@ xcrun simctl launch booted com.example.shadow43 -object 120-cell -projection ste
 ```
 
 `-time` freezes time after integrating the motion for that many seconds. All keys are listed in
-`Packages/Core4D/Sources/Core4D/LaunchOptions.swift`.
+DESIGN.md §12.5 and in `Packages/Core4D/Sources/Core4D/LaunchOptions.swift`.
 
 ## License
 

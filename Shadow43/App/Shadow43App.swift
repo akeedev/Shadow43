@@ -12,6 +12,8 @@ import SwiftUI
 struct Shadow43App: App {
     @State private var model: AppModel
     @State private var roomStyle: any ImmersionStyle = MixedImmersionStyle()
+    /// Size of a new volume in metres: 1 m, or `-volumeSize` (D45).
+    private let volumeSize: SIMD3<Double>
 
     init() {
         let model = AppModel()
@@ -20,12 +22,13 @@ struct Shadow43App: App {
         let args = SnapshotMode.launchArguments()
         let isSnapshot = LaunchConfiguration.isSnapshot(args)
         let saved = isSnapshot ? nil : SettingsStore.load()
-        let config = LaunchConfiguration.parse(args, base: saved?.state ?? ViewState())
+        let config = LaunchConfiguration.parse(args, base: saved?.state ?? ViewState(),
+                                               gestureMapping: saved?.gestureMapping ?? GestureMapping())
         model.apply(config)
-        if let saved { model.gestureMapping = saved.gestureMapping }
         model.persistsSettings = !isSnapshot
         SnapshotMode.log(config)
         _model = State(initialValue: model)
+        volumeSize = config.volumeSize ?? VolumeSize.defaultSize
         ShadowSystem.registerSystem()
         ShadowInputComponent.registerComponent()
     }
@@ -37,9 +40,8 @@ struct Shadow43App: App {
                 .environment(model)
         }
         .windowStyle(.volumetric)
-        .defaultSize(width: Double(SceneHost.defaultWindowBounds.x),
-                     height: Double(SceneHost.defaultWindowBounds.y),
-                     depth: Double(SceneHost.defaultWindowBounds.z), in: .meters)
+        // visionOS restores the size of a known window; this is only the size of a new one.
+        .defaultSize(width: volumeSize.x, height: volumeSize.y, depth: volumeSize.z, in: .meters)
         // The user can resize the volume; VolumeView sets the minimum (D19).
         .windowResizability(.contentMinSize)
 

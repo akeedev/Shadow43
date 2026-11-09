@@ -9,6 +9,8 @@ struct ControlPanel: View {
     @Environment(AppModel.self) private var model
     /// Reset all needs a second tap within a few seconds.
     @State private var isResetArmed = false
+    /// Disarms Reset all after 3 s; cancelled by a confirm or a new arming.
+    @State private var disarm: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -18,23 +20,24 @@ struct ControlPanel: View {
                 ForEach(PanelTab.allCases) { tab in
                     SelectButton(title: tab.label, isSelected: model.panelTab == tab) {
                         model.panelTab = tab
-                        if model.isHelpMode { model.showHelp(.tab(tab)) }
                     }
+                    .helpTarget(.tab(tab))
                 }
                 Spacer(minLength: 16)
                 Button("Help", systemImage: "questionmark") { toggleHelpMode() }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.bordered)
                     .tint(model.isHelpMode ? .accentColor : nil)
+                // A toggle: tapped again it closes Info, which also ends "?" mode.
                 Button("About", systemImage: "info.circle") {
-                    if model.showsHelp && model.helpTopic == .about {
+                    if model.helpTopic == .about {
                         model.closeHelp()
                     } else {
                         model.showHelp(.about)
                     }
                 }
                 .buttonStyle(.bordered)
-                .tint(model.showsHelp && model.helpTopic == .about ? .accentColor : nil)
+                .tint(model.helpTopic == .about ? .accentColor : nil)
                 resetAllButton
             }
 
@@ -58,14 +61,15 @@ struct ControlPanel: View {
     private var resetAllButton: some View {
         Button(isResetArmed ? "Confirm reset" : "Reset all",
                systemImage: "arrow.uturn.backward") {
+            disarm?.cancel()
             if isResetArmed {
                 model.resetAll()
                 isResetArmed = false
             } else {
                 isResetArmed = true
-                Task {
+                disarm = Task {
                     try? await Task.sleep(for: .seconds(3))
-                    isResetArmed = false
+                    if !Task.isCancelled { isResetArmed = false }
                 }
             }
         }

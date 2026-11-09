@@ -46,19 +46,20 @@ enum ManipulationProbe {
         return probe
     }
 
-    /// Subscribes to the manipulation events and writes them into the gesture log.
-    static func subscribe(_ content: RealityViewContent, log: GestureLog) -> [EventSubscription] {
+    /// Subscribes to the probe's manipulation events, not those of other content such as the
+    /// room's floor disc, and writes them into the gesture log.
+    static func subscribe(_ content: RealityViewContent, probe: Entity, log: GestureLog) -> [EventSubscription] {
         [
-            content.subscribe(to: ManipulationEvents.WillBegin.self) { event in
+            content.subscribe(to: ManipulationEvents.WillBegin.self, on: probe, componentType: nil) { event in
                 log.record(manipulation: "begin, \(event.inputDeviceSet.count) input(s)")
             },
-            content.subscribe(to: ManipulationEvents.DidUpdateTransform.self) { event in
+            content.subscribe(to: ManipulationEvents.DidUpdateTransform.self, on: probe, componentType: nil) { event in
                 let t = event.entity.transform
                 let q = t.rotation
                 log.record(manipulation: "t \(format(t.translation)), angle "
                     + String(format: "%.1f° axis ", q.angle * 180 / .pi) + format(q.axis))
             },
-            content.subscribe(to: ManipulationEvents.WillEnd.self) { _ in
+            content.subscribe(to: ManipulationEvents.WillEnd.self, on: probe, componentType: nil) { _ in
                 log.record(manipulation: "end")
             },
         ]

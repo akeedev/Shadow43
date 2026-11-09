@@ -245,13 +245,32 @@ struct TessellationTests {
         #expect(FrameColorMode.curveKey.uv(key: [0.3, 0], w: 0).x == 0.3)
     }
 
-    @Test func recommendedSubdivisionDependsOnSpherize() {
-        let flat = TessellationOptions.recommended(for: Fixtures.tesseract, spherize: 0)
-        #expect(flat.edgeSegments == 1 && flat.faceSubdivision == 1)
-        let round = TessellationOptions.recommended(for: Fixtures.tesseract, spherize: 0.5)
-        #expect(round.edgeSegments == 8 && round.faceSubdivision == 3)
-        let big = TessellationOptions.recommended(for: Fixtures.oneTwentyCell, spherize: 1)
-        #expect(big.edgeSegments < 8)
+    @Test func recommendedSubdivisionDependsOnSpherizeAndSize() {
+        let flat = TessellationOptions.recommended(for: Fixtures.oneTwentyCell, spherize: 0)
+        #expect(flat == TessellationOptions(edgeSegments: 1, faceSubdivision: 1))
+        // Under 200 edges, under 1000, and more (DESIGN 10.4).
+        #expect(TessellationOptions.recommended(for: Fixtures.twentyFourCell, spherize: 0.5)
+            == TessellationOptions(edgeSegments: 8, faceSubdivision: 3))
+        #expect(TessellationOptions.recommended(for: Fixtures.sixHundredCell, spherize: 1)
+            == TessellationOptions(edgeSegments: 6, faceSubdivision: 2))
+        #expect(TessellationOptions.recommended(for: Fixtures.oneTwentyCell, spherize: 1)
+            == TessellationOptions(edgeSegments: 5, faceSubdivision: 2))
+    }
+
+    @Test func cellCentresIgnoreDroppedPoints() throws {
+        // Per-cell entities sit at the centre of their cell's visible points.
+        let c = Fixtures.tesseract
+        let mesh = Tessellation.renderMesh(for: c, explode: 0.2, options: TessellationOptions(edgeSegments: 1, faceSubdivision: 2))
+        let builder = FrameBuilder(mesh: mesh)
+        builder.update(FrameParameters(kappa: 0, faceOffset: 0.01))
+        for (g, cell) in c.cells.enumerated() {
+            let found = try #require(builder.groupCentre(g))
+            #expect(simd_distance(found.centre, SIMD3<Float>(Float(cell.center.x), Float(cell.center.y), Float(cell.center.z))) < 1e-5)
+            #expect(found.min.x <= found.centre.x && found.centre.x <= found.max.x)
+        }
+        // With every point dropped there is no centre.
+        builder.update(FrameParameters(maxRadius: 0.01))
+        #expect(builder.groupCentre(0) == nil)
     }
 
     /// A rotation that maps the unit vector a onto the unit vector b (in the plane they span).

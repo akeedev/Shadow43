@@ -13,11 +13,13 @@ import simd
 /// inwards), the front entity the front copies (outer sides, normals outwards); both use back-face
 /// culling, so each draws exactly the half of the cell that faces the camera (D16).
 ///
-/// Each cell entity is placed at its cell's centroid (its vertices are stored relative to it), so
-/// that RealityKit's distance sort sees where the cell actually is.
+/// Each cell entity is placed at the centre of its cell's visible points (its vertices are stored
+/// relative to it), so that RealityKit's distance sort sees where the cell actually is.
 @MainActor
 final class CellEntities {
     let container = Entity()
+    /// Called after new entities were added, so that they cast shadows by the floor method.
+    var onEntitiesCreated: (() -> Void)?
     private var groupPoints: [Range<Int>] = []
     private var groupTriangles: [Range<Int>] = []
     private var frontMeshes: [DynamicMesh] = []
@@ -32,8 +34,10 @@ final class CellEntities {
         container.name = "CellEntities"
     }
 
-    /// Records the cell layout of a new render mesh; entities are created on first use.
+    /// Records the cell layout of a new render mesh; entities are created on first use. A layout
+    /// with the same ranges, as every explode step gives, keeps the entities and their meshes.
     func rebuild(groups: [Range<Int>], triangles: [Range<Int>]) {
+        guard groups != groupPoints || triangles != groupTriangles else { return }
         groupPoints = groups
         groupTriangles = triangles
         needsEntities = true
@@ -65,8 +69,6 @@ final class CellEntities {
             let front = ModelEntity()
             front.name = "Cell\(g)-front"
             front.components.set(ModelSortGroupComponent(group: group, order: 1))
-            back.components.set(DynamicLightShadowComponent(castsShadow: true))
-            front.components.set(DynamicLightShadowComponent(castsShadow: true))
             container.addChild(back)
             container.addChild(front)
             frontMeshes.append(frontMesh)
@@ -75,6 +77,7 @@ final class CellEntities {
             frontEntities.append(front)
         }
         applyMaterials()
+        onEntitiesCreated?()
     }
 
     private func applyMaterials() {
@@ -94,16 +97,10 @@ final class CellEntities {
         guard fronts.count == frontMeshes.count, backs.count == backMeshes.count else { return }
         for g in frontMeshes.indices {
             let points = groupPoints[g]
-            var centroid = SIMD3<Float>.zero
-            var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
-            for i in points {
-                let p = b.faceVertices[i].position
-                centroid += p
-                lo = simd_min(lo, p)
-                hi = simd_max(hi, p)
-            }
-            centroid /= Float(max(1, points.count))
-            let bounds = fronts[g].isEmpty ? BoundingBox() : BoundingBox(min: lo - centroid, max: hi - centroid)
+            // Without a visible point the cell draws nothing; it keeps its place.
+            let found = b.groupCentre(g)
+            let centroid = found?.centre ?? frontEntities[g].position
+            let bounds = found.map { BoundingBox(min: $0.min - centroid, max: $0.max - centroid) } ?? BoundingBox()
             write(frontMeshes[g], b, firstVertex: points.lowerBound, count: points.count,
                   indices: fronts[g], centroid: centroid, bounds: bounds)
             write(backMeshes[g], b, firstVertex: b.backVertexOffset + points.lowerBound, count: points.count,

@@ -37,6 +37,11 @@ final class ShadowRenderer {
     /// Variant C probe for the gesture test (S3).
     let probe: ModelEntity
 
+    /// Room only: the head, for sorting translucent faces towards it (D44). Set by the room view.
+    var headTracker: HeadTracker?
+    /// Room only: the current sort direction, which turns only past `SortDirection.threshold`.
+    private var roomSortDirection = SIMD3<Float>(0, 0, 1)
+
     private let materials = MaterialFactory()
     private var structure: StructureKey?
     private var complex: (key: ComplexKey, value: Complex4D)?
@@ -80,16 +85,18 @@ final class ShadowRenderer {
         floor.attachCaster(facesEntity)
         floor.attachCaster(edgesEntity)
         floor.attachCaster(cells.container)
+        // Cell entities are created later; they cast shadows by the current floor method too.
+        cells.onEntitiesCreated = { [floor] in floor.refreshCasters() }
         root.components.set(ShadowComponent(renderer: self))
-        Task { [weak self] in
-            await self?.materials.prepare()
-            self?.lastLayersApplied = nil
-        }
+        AdditivePrograms.prepare()
     }
 
-    /// Breaks the reference cycle root → component → renderer when the view goes away.
+    /// Breaks the reference cycle root → component → renderer when the view goes away, and stops
+    /// the head tracking.
     func tearDown() {
         root.components.remove(ShadowComponent.self)
+        headTracker?.stop()
+        headTracker = nil
     }
 
     /// The host's box changed, e.g. the window was resized (D19): the size fit, floor, light and
@@ -275,36 +282,35 @@ final class ShadowRenderer {
         let hasFaces = kind != .curves
         let facesVisible = hasFaces && d.faceOpacity > 0.001
         let translucent = d.faceOpacity < 0.999
-        // Per-cell entities only with explode and few cells (D31).
-        var method = model.developer.transparency.effective(cellCount: complex?.value.cells.count ?? 0,
-                                                            explode: model.effectiveExplode)
-        // Additive blending adds the light pattern layers up to white; sorted keeps them (D24).
-        if method == .additive && d.pattern != .none { method = .sorted }
+        // One rule for every fallback to sorted (D47): per-cell entities only with explode and
+        // few cells (D31), additive neither with a pattern (D24) nor before its programs exist.
+        let method = model.developer.transparency.effective(cellCount: complex?.value.cells.count ?? 0,
+                                                            explode: model.effectiveExplode,
+                                                            hasPattern: d.pattern != .none,
+                                                            additiveReady: AdditivePrograms.isReady)
         let usesCells = facesVisible && translucent && method == .perCellEntities
-        // A pattern replaces the colour source on the faces; edges keep it (D24).
-        let pattern = Self.texture(for: d.pattern)
         return LayerKey(
             facesVisible: facesVisible,
+            // Curves are only edges, so they always show them.
             edgesVisible: d.edgesVisible || !hasFaces,
             style: d.faceStyle,
             opacity: Float(d.faceOpacity),
             translucent: translucent,
             method: method,
             usesCellEntities: usesCells,
-            faceTexture: pattern ?? Self.texture(for: source),
-            faceMode: pattern != nil ? .pattern : Self.mode(for: source),
-            edgeTexture: d.edgeColor == .light ? .light : Self.texture(for: source),
-            edgeMode: d.edgeColor == .light ? .uniform : Self.mode(for: source)
+            // A pattern replaces the colour source on the faces; edges keep it (D24).
+            faces: Coloring.faces(source: source, pattern: d.pattern),
+            edges: Coloring.edges(source: source, edgeColor: d.edgeColor)
         )
     }
 
     private func applyLayers(_ l: LayerKey) {
-        let blend: MaterialKey.Blend = !l.translucent ? .opaque : (l.method == .additive && materials.isReady ? .additive : .alpha)
+        let blend: MaterialKey.Blend = !l.translucent ? .opaque : (l.method == .additive ? .additive : .alpha)
         // Double-sided via a front and a back copy of every triangle, each with its own normals,
         // plus back-face culling (D12, D16).
-        let faceMaterial = materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
+        let faceMaterial = materials.material(MaterialKey(style: l.style, texture: l.faces.texture, opacity: l.opacity,
                                                           blend: blend, culling: .back))
-        let edgeMaterial = materials.material(MaterialKey(style: l.style, texture: l.edgeTexture, opacity: 1,
+        let edgeMaterial = materials.material(MaterialKey(style: l.style, texture: l.edges.texture, opacity: 1,
                                                           blend: .opaque, culling: .back))
         if let faceMesh { facesEntity.model = ModelComponent(mesh: faceMesh.resource, materials: [faceMaterial]) }
         if let edgeMesh { edgesEntity.model = ModelComponent(mesh: edgeMesh.resource, materials: [edgeMaterial]) }
@@ -313,7 +319,7 @@ final class ShadowRenderer {
         if l.usesCellEntities {
             // Back copies (inner sides) and front copies (outer sides) are separate entities with
             // the same material; the sort group draws the back copies first.
-            cells.setMaterial(materials.material(MaterialKey(style: l.style, texture: l.faceTexture, opacity: l.opacity,
+            cells.setMaterial(materials.material(MaterialKey(style: l.style, texture: l.faces.texture, opacity: l.opacity,
                                                              blend: .alpha, culling: .back)))
         }
         cells.container.isEnabled = l.usesCellEntities
@@ -322,7 +328,7 @@ final class ShadowRenderer {
 
     private func frameParameters(_ l: LayerKey) -> FrameParameters {
         let box = max(host.bounds.x, max(host.bounds.y, host.bounds.z))
-        let viewDirection: SIMD3<Float> = host.tracksVolumeViewpoint ? model.viewSide.direction : [0, 0, 1]
+        let sortFaces = l.facesVisible && l.translucent && l.method == .sorted
         // Edge and face thickness keep their size in metres when the object is zoomed (D28).
         let mpu = Double(metresPerUnit())
         let reference = Double(host.thicknessReferenceSide)
@@ -332,17 +338,34 @@ final class ShadowRenderer {
             rotation: Rotation4D.float(model.orientation),
             kappa: Float(model.projection.kappa),
             spherize: Float(model.projection.spherize),
-            faceColors: l.faceMode,
-            edgeColors: l.edgeMode,
+            faceColors: l.faces.mode,
+            edgeColors: l.edges.mode,
             edgeRadius: Float(edgeRadius),
-            sortFaces: l.facesVisible && l.translucent && l.method == .sorted,
+            sortFaces: sortFaces,
             orientCellFaces: l.usesCellEntities,
-            viewDirection: viewDirection,
+            // Only sorting needs it, so a moving viewer re-runs the pipeline only then.
+            viewDirection: sortFaces ? sortDirection() : [0, 0, 1],
             epsilon: Float(Projection4D.defaultEpsilon),
             maxRadius: 4 * box / metresPerUnit(),
             // Thick faces (D24): half the thickness on each side.
             faceOffset: Float(0.5 * faceThickness)
         )
+    }
+
+    /// The direction to sort translucent faces towards, from the one source each host has: in the
+    /// volume the side the viewer is on (D17), in the room the head, turning only past 10° (D44).
+    /// In content coordinates, which are never rotated.
+    private func sortDirection() -> SIMD3<Float> {
+        switch host.kind {
+        case .window:
+            return model.viewSide.direction
+        case .room:
+            if let head = headTracker?.headPosition() {
+                roomSortDirection = SortDirection.update(roomSortDirection,
+                                                         towards: content.convert(position: head, from: nil))
+            }
+            return roomSortDirection
+        }
     }
 
     private func upload(_ b: FrameBuilder, layers: LayerKey) {
@@ -360,37 +383,6 @@ final class ShadowRenderer {
         }
     }
 
-    // MARK: Colour sources
-
-    static func texture(for source: ColorSource) -> ColorTexture {
-        switch source {
-        case .uniform: .uniform
-        case .byW: .byW
-        case .perCell: .palette
-        case .surfaceParameter: .checkerboard
-        case .perFibre: .hue
-        }
-    }
-
-    /// The face texture of a pattern, or nil for none (D24).
-    static func texture(for pattern: SurfacePattern) -> ColorTexture? {
-        switch pattern {
-        case .none: nil
-        case .grid: .grid
-        case .marble: .marble
-        case .wood: .wood
-        }
-    }
-
-    static func mode(for source: ColorSource) -> FrameColorMode {
-        switch source {
-        case .uniform: .uniform
-        case .byW: .byW
-        case .perCell: .palette(count: ColorTexture.paletteCount)
-        case .surfaceParameter: .surfaceParameter
-        case .perFibre: .curveKey
-        }
-    }
 }
 
 /// Which object complex is shown.
@@ -421,10 +413,8 @@ struct LayerKey: Equatable {
     var translucent: Bool
     var method: TransparencyMethod
     var usesCellEntities: Bool
-    var faceTexture: ColorTexture
-    var faceMode: FrameColorMode
-    var edgeTexture: ColorTexture
-    var edgeMode: FrameColorMode
+    var faces: Coloring
+    var edges: Coloring
 }
 
 /// Averages frame and CPU times for the performance overlay (spike S2).

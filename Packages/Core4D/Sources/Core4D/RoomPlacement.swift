@@ -36,3 +36,19 @@ public struct LevelPose: Equatable, Sendable {
     /// The rotation about +y by `yaw`.
     public var rotation: simd_quatd { simd_quatd(angle: yaw, axis: [0, 1, 0]) }
 }
+
+/// The room sorts translucent faces towards the viewer's head (D44), but only re-sorts when the
+/// direction has turned by more than `threshold`, so a viewer who stands still costs nothing.
+public enum SortDirection {
+    public static let threshold: Float = 10 * .pi / 180
+
+    /// The unit vector to sort along: `current`, or the direction to `viewer` once it differs
+    /// from `current` by more than the threshold. `viewer` is the viewer's position relative to
+    /// the content's centre, in the content's axes.
+    public static func update(_ current: SIMD3<Float>, towards viewer: SIMD3<Float>) -> SIMD3<Float> {
+        let length = simd_length(viewer)
+        guard length > 1e-4, length.isFinite else { return current }
+        let direction = viewer / length
+        return simd_dot(direction, current) < cos(threshold) ? direction : current
+    }
+}

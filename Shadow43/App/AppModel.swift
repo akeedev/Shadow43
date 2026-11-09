@@ -26,12 +26,10 @@ final class AppModel {
 
     /// Control-panel tab shown.
     var panelTab: PanelTab = .object
+    /// What the info window shows; nil = it is closed. The controls open and close it (D46).
+    var helpTopic: HelpTopic?
     /// "?" mode: tapping a control explains it in the info window instead of using it (D22).
     var isHelpMode = false
-    /// What the info window shows.
-    var helpTopic: HelpTopic = .about
-    /// Whether the info window is open; the volume and the controls open it (D25, D40).
-    var showsHelp = false
     /// Set when the volume or the controls window closes: every other window, and the room, then
     /// close themselves, so the whole app closes (D34).
     var isClosing = false
@@ -39,12 +37,19 @@ final class AppModel {
     /// Shows a topic in the info window.
     func showHelp(_ topic: HelpTopic) {
         helpTopic = topic
-        showsHelp = true
+    }
+
+    /// Explains a topic as a tap in "?" mode does: taps that only change what is shown take
+    /// effect too, so an object is shown in the volume and a tab is opened (D22, D46).
+    func explain(_ topic: HelpTopic) {
+        showHelp(topic)
+        if let object = topic.shownObject { self.object = object }
+        if case .tab(let tab) = topic { panelTab = tab }
     }
 
     /// Closes the info window and leaves "?" mode.
     func closeHelp() {
-        showsHelp = false
+        helpTopic = nil
         isHelpMode = false
     }
     /// Whether the settings are saved between launches; false in snapshot mode (D29).
@@ -111,6 +116,19 @@ final class AppModel {
     /// Stop: Ω = 0.
     func stop() { motion.omega = .zero }
 
+    /// A projection preset glides there (D42); `tick` moves κ and s every frame.
+    @ObservationIgnored private var projectionMorph: ProjectionMorph?
+
+    func morphProjection(to target: ProjectionSettings) {
+        projectionMorph = ProjectionMorph(from: projection, to: target, start: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Sets κ or s directly, e.g. from a slider; ends a running glide.
+    func setProjection(_ change: (inout ProjectionSettings) -> Void) {
+        projectionMorph = nil
+        change(&projection)
+    }
+
     /// Choosing a material, pattern or thickness means the faces should be seen (D24): hidden
     /// faces (opacity near 0, e.g. Wireframe) become opaque, or half transparent for frosted glass.
     func showFaces() {
@@ -120,8 +138,9 @@ final class AppModel {
     }
 
     /// "Reset all": every setting back to its default, including the developer settings, the
-    /// drag mapping and a viewer side fixed by launch argument. Tab and help mode stay.
+    /// drag mapping and a viewer side fixed by launch argument. Tab, help and the room stay.
     func resetAll() {
+        projectionMorph = nil
         viewState = ViewState()
         gestureMapping = GestureMapping()
         viewSideOverride = nil
@@ -129,54 +148,47 @@ final class AppModel {
 
     @ObservationIgnored private var lastTick: TimeInterval?
 
-    /// Advances the motion once per frame (DESIGN 11.1, step 1). Every host's renderer calls it;
-    /// calls less than 2 ms apart belong to the same frame and are ignored, so two open scenes
-    /// do not rotate twice as fast. Returns whether R changed.
-    @discardableResult
-    func tick(now: TimeInterval) -> Bool {
+    /// Advances the motion and a projection glide once per frame (DESIGN 11.1, step 1). Every
+    /// host's renderer calls it; calls less than 2 ms apart belong to the same frame and are
+    /// ignored, so two open scenes do not rotate twice as fast. Frozen time stops the motion,
+    /// not the glide.
+    func tick(now: TimeInterval) {
         guard let last = lastTick else {
             lastTick = now
-            return false
+            return
         }
         let dt = now - last
-        guard dt >= 0.002 else { return false }
+        guard dt >= 0.002 else { return }
         lastTick = now
-        guard !developer.freezesTime, !motion.omega.isZero else { return false }
+        if let morph = projectionMorph {
+            let (settings, finished) = morph.value(at: now)
+            if projection != settings { projection = settings }
+            if finished { projectionMorph = nil }
+        }
+        guard !developer.freezesTime, !motion.omega.isZero else { return }
         let step = min(dt, 0.1)
         orientation = Rotation4D.advance(orientation, omega: motion.omega, dt: step)
         if motion.friction > 0 {
             motion.omega = Rotation4D.damp(motion.omega, friction: motion.friction, dt: step)
         }
-        return true
     }
 
-    /// Applies launch arguments (snapshot mode, DESIGN 12.5).
+    /// Applies launch arguments (snapshot mode, DESIGN 12.5) or, without them, the saved settings.
     func apply(_ config: LaunchConfiguration) {
         var state = config.state
         if let t = config.time { state = LaunchConfiguration.integrate(state, time: t) }
         viewState = state
-        if let tab = config.panel.flatMap(PanelTab.init(rawValue:)) { panelTab = tab }
+        gestureMapping = config.gestureMapping
+        if let tab = config.panel { panelTab = tab }
+        if let topic = config.help { showHelp(topic) }
+        isHelpMode = config.helpMode
         viewSideOverride = config.viewSide
         launchProblems = config.problems
-        if let raw = config.help {
-            if let topic = HelpTopic(launchValue: raw) {
-                showHelp(topic)
-                isHelpMode = topic != .about
-            } else {
-                launchProblems.append("help=\(raw)")
-            }
-        }
     }
 
     /// The colour source and explode that are actually used for the current object.
     var effectiveColorSource: ColorSource { display.effectiveColorSource(for: object.kind) }
     var effectiveExplode: Double { display.effectiveExplode(for: object.kind) }
-}
-
-/// Tabs of the control panel (DESIGN 8.3). The raw value is the `-panel` launch argument.
-enum PanelTab: String, CaseIterable, Identifiable {
-    case object, projection, display, surface, motion, developer
-    var id: String { rawValue }
 }
 
 /// Numbers shown by the performance overlay (spike S2).

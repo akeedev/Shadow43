@@ -89,6 +89,26 @@ struct SurfaceLookTests {
         #expect(abs((thin.boundsMin.x - thick.boundsMin.x) - h) < 1e-6)
     }
 
+    @Test func coloringFollowsTheSourceAndThePattern() throws {
+        // Every source has its own texture and uv rule (DESIGN 11.6).
+        let expected: [ColorSource: (ColorTexture, FrameColorMode)] = [
+            .uniform: (.uniform, .uniform), .byW: (.byW, .byW),
+            .perCell: (.palette, .palette(count: ColorTexture.paletteCount)),
+            .surfaceParameter: (.checkerboard, .surfaceParameter), .perFibre: (.hue, .curveKey),
+        ]
+        for source in ColorSource.allCases {
+            let e = try #require(expected[source])
+            #expect(Coloring(source) == Coloring(texture: e.0, mode: e.1), "\(source)")
+            #expect(Coloring.faces(source: source, pattern: .none) == Coloring(source))
+            #expect(Coloring.edges(source: source, edgeColor: .matchFaces) == Coloring(source))
+            #expect(Coloring.edges(source: source, edgeColor: .light) == Coloring(texture: .light, mode: .uniform))
+            // D24: a pattern replaces the colour on the faces only.
+            #expect(Coloring.faces(source: source, pattern: .marble) == Coloring(texture: .marble, mode: .pattern))
+        }
+        #expect(ColorTexture.allCases.filter(\.isPattern) == [.grid, .marble, .wood])
+        #expect(ColorTexture.allCases.filter(\.usesNearestFilter) == [.palette])
+    }
+
     @Test func launchArgumentsSetPatternThicknessAndStyle() {
         let config = LaunchConfiguration.parse(["pattern": "marble", "faceThickness": "0.5", "style": "frosted"])
         #expect(config.state.display.pattern == .marble)

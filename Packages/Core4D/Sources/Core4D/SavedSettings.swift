@@ -3,11 +3,12 @@
 import Foundation
 
 /// The settings kept between launches (D29): every stage of `ViewState` except the orientation,
-/// which starts at `Orientation4D.start` at every launch, plus the drag mapping.
+/// which starts at `Orientation4D.start` at every launch, and the Developer diagnostics, which
+/// start off (D43); plus the drag mapping.
 ///
 /// Each part is decoded on its own and falls back to its default if it is missing or can no
 /// longer be read, for example after an update changed its fields; the other parts are kept.
-/// Numbers are limited to their current ranges.
+/// Numbers are limited to their current ranges (D41).
 public struct SavedSettings: Codable, Equatable, Sendable {
     public var state: ViewState
     public var gestureMapping: GestureMapping
@@ -15,6 +16,7 @@ public struct SavedSettings: Codable, Equatable, Sendable {
     public init(state: ViewState = ViewState(), gestureMapping: GestureMapping = GestureMapping()) {
         var s = state
         s.orientation = .start
+        s.developer = s.developer.withoutDiagnostics
         self.state = s
         self.gestureMapping = gestureMapping
     }
@@ -61,20 +63,6 @@ public struct SavedSettings: Codable, Equatable, Sendable {
 
     /// The settings with every number limited to its current range.
     public func clamped() -> SavedSettings {
-        var s = self
-        let unit: ClosedRange<Double> = 0...1
-        s.state.duoprism.p = s.state.duoprism.p.clamped(to: DuoprismParameters.range)
-        s.state.duoprism.q = s.state.duoprism.q.clamped(to: DuoprismParameters.range)
-        s.state.projection.kappa = s.state.projection.kappa.clamped(to: unit)
-        s.state.projection.spherize = s.state.projection.spherize.clamped(to: unit)
-        s.state.display.edgeThickness = s.state.display.edgeThickness.clamped(to: DisplaySettings.thicknessRange)
-        s.state.display.faceOpacity = s.state.display.faceOpacity.clamped(to: unit)
-        s.state.display.explode = s.state.display.explode.clamped(to: DisplaySettings.explodeRange)
-        s.state.display.faceThickness = s.state.display.faceThickness.clamped(to: DisplaySettings.faceThicknessRange)
-        s.state.motion.friction = s.state.motion.friction.clamped(to: MotionSettings.frictionRange)
-        s.state.scale = s.state.scale.clamped(to: ViewState.scaleRange)
-        s.gestureMapping.radiansPerMetre = s.gestureMapping.radiansPerMetre.clamped(to: GestureMapping.radiansPerMetreRange)
-        s.gestureMapping.sign = s.gestureMapping.sign < 0 ? -1 : 1
-        return s
+        SavedSettings(state: state.clamped(), gestureMapping: gestureMapping.clamped())
     }
 }

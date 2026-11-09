@@ -74,6 +74,13 @@ public struct AngularVelocity4D: Codable, Equatable, Sendable {
         for plane in RotationPlane.allCases { result[plane] = self[plane] * factor }
         return result
     }
+
+    /// Every plane's rate limited to `range` on its own.
+    public func clamped(to range: ClosedRange<Double>) -> AngularVelocity4D {
+        var result = self
+        for plane in RotationPlane.allCases { result[plane] = self[plane].clamped(to: range) }
+        return result
+    }
 }
 
 /// A 4×4 rotation matrix R, the orientation of the object (DESIGN 4). Codable as 16 numbers
@@ -187,8 +194,8 @@ public enum Rotation4D {
         return orthonormalize(m)
     }
 
-    /// `Ω ← Ω · exp(−friction · Δt)`; rates below `snap` become exactly zero so the pipeline can
-    /// stop recomputing.
+    /// `Ω ← Ω · exp(−friction · Δt)`; with friction, rates below `snap` become exactly zero so the
+    /// pipeline can stop recomputing. Without friction Ω stays as it is.
     public static func damp(_ omega: AngularVelocity4D, friction: Double, dt: Double,
                             snap: Double = 1e-3) -> AngularVelocity4D {
         guard friction > 0 else { return omega }
