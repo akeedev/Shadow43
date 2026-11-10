@@ -14,7 +14,10 @@ xcuserdata/
 # Local signing (team ID, real bundle ID) – never commit
 Config/Signing.local.xcconfig
 
-# Claude Code local settings
+# Claude Code local settings and the local session transcript
 .claude/settings.local.json
+claude-transcript.md
 
 .DS_Store
+SESSIONS.md
+claude-transcript.md
