@@ -2,21 +2,20 @@
 
 **The shadows of four-dimensional objects, in your room.** A cube casts a flat shadow; a
 four-dimensional object casts a three-dimensional one. Shadow43, an app for Apple Vision Pro, shows
-that shadow as a stereoscopic object you can walk around, and lets you turn the 4D object with your
-hands. The shadow deforms, turns inside out and passes through itself, while the object itself
-stays rigid.
+this shadow of an object in 4-dimensional space as a stereoscopic object in 3D that you can walk around. 
+It lets you turn the 4D object with your hands and have it rotate in 4 dimensions. The shadow deforms, 
+turns inside out and passes through itself, while the object itself stays rigid.
 
 ![The tesseract's shadow in perspective: a cube inside a cube, above the disc that catches the shadow of the shadow](docs/screenshots/tesseract.jpg)
 
 ## Copyright and AI notice
 
-> [!NOTE]
-> © 2026 Andreas Keese, licensed under Apache 2.0. Provided as is, without warranty of any kind:
-> it may contain bugs, and it is a personal project, not an App Store product.
->
-> Shadow43 was built by agentic coding: Claude (Opus 5.5), working in
-> [Claude Code](https://claude.com/claude-code), wrote the code, the tests and the design document, and tested the app in the visionOS simulator. 
-> I set the direction, made the decisions, reviewed the work and tested the app on an Apple Vision Pro.
+© 2026 Andreas Keese, licensed under Apache 2.0. Provided as is, without warranty of any kind:
+it may contain bugs, and it is a personal project, not an App Store product.
+
+Shadow43 was built by agentic coding: Claude (Opus 5.5), working in [Claude Code](https://claude.com/claude-code), 
+wrote the code, the tests and the design document, and tested the app in the visionOS simulator. 
+I set the direction, made the decisions, reviewed the work and tested the app on an Apple Vision Pro.
 
 ## What it does
 
