@@ -8,6 +8,16 @@ stays rigid.
 
 ![The tesseract's shadow in perspective: a cube inside a cube, above the disc that catches the shadow of the shadow](docs/screenshots/tesseract.jpg)
 
+## Copyright and AI notice
+
+> [!NOTE]
+> © 2026 Andreas Keese, licensed under Apache 2.0. Provided as is, without warranty of any kind:
+> it may contain bugs, and it is a personal project, not an App Store product.
+>
+> Shadow43 was built by agentic coding: Claude (Opus 5.5), working in
+> [Claude Code](https://claude.com/claude-code), wrote the code, the tests and the design document, and tested the app in the visionOS simulator. 
+> I set the direction, made the decisions, reviewed the work and tested the app on an Apple Vision Pro.
+
 ## What it does
 
 - **Ten objects:** the six regular 4D polytopes (5-cell, tesseract, 16-cell, 24-cell, 120-cell,
@@ -63,9 +73,8 @@ DESIGN.md §12.5 and in `Packages/Core4D/Sources/Core4D/LaunchOptions.swift`.
 ## Design
 
 [DESIGN.md](DESIGN.md) describes the app in full: the idea, the mathematics, the rendering, and
-every decision with its reason. The app was developed with
-[Claude Code](https://claude.com/claude-code); CLAUDE.md, NIGHT_RUN.md and NIGHT_REPORT.md are the
-instructions and logs of that work.
+every decision with its reason. CLAUDE.md, NIGHT_RUN.md and NIGHT_REPORT.md are the instructions
+and logs of the agentic work.
 
 ## License
 
