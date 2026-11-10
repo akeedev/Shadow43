@@ -1,16 +1,40 @@
 # Shadow43
 
-A visionOS app for Apple Vision Pro that shows the three-dimensional shadow (projection) of
-four-dimensional objects, such as the tesseract, the 120-cell, the Klein bottle and the Hopf
-fibration. You can rotate them in all six 4D rotation planes, by hand or automatically, and morph
-continuously between orthographic, perspective and stereographic projection.
+**The shadows of four-dimensional objects, in your room.** A cube casts a flat shadow; a
+four-dimensional object casts a three-dimensional one. Shadow43, an app for Apple Vision Pro, shows
+that shadow as a stereoscopic object you can walk around, and lets you turn the 4D object with your
+hands. The shadow deforms, turns inside out and passes through itself, while the object itself
+stays rigid.
 
-Status: version 1.0; it runs on Apple Vision Pro and in the visionOS simulator. See
-[DESIGN.md](DESIGN.md) for the full design.
+![The tesseract's shadow in perspective: a cube inside a cube, above the disc that catches the shadow of the shadow](docs/screenshots/tesseract.jpg)
 
-## Build
+## What it does
 
-Requirements: Xcode 27.1 or later with the visionOS 27 SDK, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+- **Ten objects:** the six regular 4D polytopes (5-cell, tesseract, 16-cell, 24-cell, 120-cell,
+  600-cell), duoprisms p × q, the Klein bottle, the Clifford torus and the Hopf fibration.
+- **Turn them by hand:** pinch and drag to turn in 4D, let go to throw, twist with two hands to turn
+  in 3D. Or let them turn by themselves, for example in the Clifford rotation, which has no 3D
+  counterpart.
+- **Morph the projection** between orthographic, perspective and stereographic.
+- **Draw them your way:** edges, glass, solid or separated cells; colour by w or per cell; six
+  materials, and patterns that show how the projection stretches every face.
+- **In a window or in the room:** the object floats in a volume next to your other apps, or stands
+  in the room, about 1.5 m across. A disc below it catches the shadow of the shadow: 4D → 3D → 2D.
+- **It explains itself:** in help mode, a tap on any control or object explains it.
+
+| | |
+|:---:|:---:|
+| ![The 120-cell in the room](docs/screenshots/120-cell.jpg) | ![The 24-cell](docs/screenshots/24-cell.jpg) |
+| The 120-cell in the room: 120 dodecahedra, nested in shells | The 24-cell, its octahedral cells pulled apart |
+| ![The Klein bottle](docs/screenshots/klein-bottle.jpg) | ![The Hopf fibration](docs/screenshots/hopf-fibration.jpg) |
+| The Klein bottle in marble; it meets itself only in the shadow | The Hopf fibration: circles of the 3-sphere, every two linked |
+
+The screenshots are from the visionOS simulator.
+
+## Build and run
+
+Shadow43 is not on the App Store; you build it with Xcode. Requirements: Xcode 27.1 or later with
+the visionOS 27 SDK, and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
 xcodegen generate                        # creates Shadow43.xcodeproj from project.yml
@@ -35,6 +59,13 @@ xcrun simctl launch booted com.example.shadow43 -object 120-cell -projection ste
 
 `-time` freezes time after integrating the motion for that many seconds. All keys are listed in
 DESIGN.md §12.5 and in `Packages/Core4D/Sources/Core4D/LaunchOptions.swift`.
+
+## Design
+
+[DESIGN.md](DESIGN.md) describes the app in full: the idea, the mathematics, the rendering, and
+every decision with its reason. The app was developed with
+[Claude Code](https://claude.com/claude-code); CLAUDE.md, NIGHT_RUN.md and NIGHT_REPORT.md are the
+instructions and logs of that work.
 
 ## License
 

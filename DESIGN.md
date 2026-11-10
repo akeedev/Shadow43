@@ -946,7 +946,8 @@ to are in §15.
   promise"`; it works about 20 s after `bootstatus -b`.
 - The app needs 3–5 s to launch; an earlier screenshot shows the system's loading placeholder.
 - The simulator renders at 120 Hz. Its timings are rough; only the device counts.
-- In the simulator, the world-tracking device anchor is the space's origin, unturned.
+- In the simulator, the world-tracking device anchor is the space's origin, unturned, so the room
+  stands at floor height, below the default view; a screenshot of it needs the camera turned down.
 - `xcodebuild` does not write extracted strings back into the String Catalog; a build in the Xcode
   IDE does. The keys a build extracted are in the `*.stringsdata` JSON files in DerivedData, and
   Xcode orders the catalog by `localizedStandardCompare`, so a script can sync it exactly.
@@ -984,8 +985,8 @@ to are in §15.
 - simd has no `simd_float4x4(simd_double4x4)` initializer; Core4D has `Rotation4D.float(_:)`.
 - Standard materials ignore a `.color` vertex attribute, and their ambient-occlusion map reads uv0,
   not uv1. So combining a colour source with a pattern needs a `ShaderGraphMaterial`.
-- Additive blending adds translucent layers up to white, so light patterns vanish; sorted keeps
-  them.
+- Additive blending adds translucent layers up to white, so light patterns vanish, and at 80 %
+  opacity the faces look white in every material; sorted keeps patterns and colours.
 - Floor shadow: a directional light casts clear shadows of the edge tubes; shadows of faces
   appeared only in some runs; a fixed orthographic shadow projection showed none; a grounding
   shadow only darkened the whole disc.
@@ -1025,24 +1026,18 @@ to are in §15.
 
 ### 14.1 To verify on the device
 
-- Info below the Controls: do the Controls grow into Info when their height changes with the tab?
-  Is Info too low when the Controls are low? [D40]
-- Room: level with a tilted head; world tracking without authorization; dragging the disc;
-  turning and throwing the object [D36, D39]; sorted faces (with a pattern) stay in order while
-  walking round the object [D44].
-- Viewer side: does `onVolumeViewpointChange` fire in the volume, and does *right* mean +x? [D17]
-- Grabs: a quick tap and a double tap leave the motion alone; holding 0.25 s or moving 5 mm
-  catches reliably [D49].
-- Twist with the SDK's conversion: the right direction in the volume and in the room [D50].
-- Throws up to 4 rad/s and the ±4 rad/s sliders [D41]; the projection morph [D42].
-- Closing: do all windows and the room close together [D34], also when another app opens a Full
-  Space?
-- Shadows of faces; sliders and menus in the windows; the device's numbers for S2; variant C (S3).
+Nothing open since the device test of version 1.0 (2026-11-09); the list it covered is in the tag
+`v1.0`. New checks for the device go here.
 
 ### 14.2 Known issues
 
 - The String Catalog falls behind whenever UI strings change, until the next build in the Xcode
   IDE or a sync from the build's `*.stringsdata` (§13.1).
+- Launched with `-help`, Info opens at the utility-panel spot in front of the volume: the Controls
+  open it in their `onAppear`, before their own window can anchor it (§13.2) [D46]. Opened by a
+  tap, the Controls already exist.
+- With the default additive transparency, faces at high opacity look white (§13.3); *sorted* in
+  the Developer tab shows their colour and material.
 
 ### 14.3 Proposed simplifications
 
